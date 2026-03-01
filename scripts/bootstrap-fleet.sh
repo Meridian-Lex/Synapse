@@ -44,14 +44,15 @@ BEGIN
   -- Assign agent to fleet
   UPDATE agents SET fleet_id = v_fleet_id WHERE id = v_agent_id;
 
-  -- Upsert default channel
-  INSERT INTO channels (name, fleet_id, created_by)
-  VALUES (:'channel_name', v_fleet_id, v_agent_id)
-  ON CONFLICT (name)
-  DO UPDATE SET fleet_id = EXCLUDED.fleet_id
-  RETURNING id INTO v_channel_id;
-
-  UPDATE channels SET fleet_id = v_fleet_id WHERE id = v_channel_id;
+  -- Idempotent channel: select existing fleet channel or insert new one.
+  -- Avoids ON CONFLICT (name) which could steal a channel from another fleet.
+  SELECT id INTO v_channel_id FROM channels
+    WHERE name = :'channel_name' AND fleet_id = v_fleet_id;
+  IF v_channel_id IS NULL THEN
+    INSERT INTO channels (name, fleet_id, created_by)
+    VALUES (:'channel_name', v_fleet_id, v_agent_id)
+    RETURNING id INTO v_channel_id;
+  END IF;
 
   -- Set default channel on agent
   UPDATE agents SET default_channel_id = v_channel_id WHERE id = v_agent_id;

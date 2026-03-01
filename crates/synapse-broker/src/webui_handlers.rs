@@ -157,6 +157,9 @@ pub async fn frame_to_json(
     }
     let header_bytes: &[u8; HEADER_LEN] = frame[..HEADER_LEN].try_into().ok()?;
     let hdr = FrameHeader::from_bytes(header_bytes).ok()?;
+    if hdr.msg_type != MsgType::Msg {
+        return None;
+    }
 
     let raw_payload = &frame[HEADER_LEN..];
     let payload: Vec<u8> = if hdr.encoding == Encoding::Zstd {

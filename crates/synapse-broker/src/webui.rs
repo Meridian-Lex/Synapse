@@ -165,7 +165,7 @@ async fn handle_ws_connection(
     state:      WebUiState,
     ctx:        crate::webui_handlers::AgentContext,
 ) {
-    let channels = match ctx.fleet_id {
+    let mut channels = match ctx.fleet_id {
         Some(fid) => crate::webui_handlers::fetch_channel_list(&state.pool, fid).await,
         None => vec![],
     };
@@ -218,7 +218,7 @@ async fn handle_ws_connection(
                 msg = socket.recv() => {
                     match msg {
                         Some(Ok(m)) => {
-                            if dispatch_command(m, &mut socket, &state, &ctx, &channels,
+                            if dispatch_command(m, &mut socket, &state, &ctx, &mut channels,
                                                &mut rx, &mut active_channel_id).await.is_err() {
                                 break;
                             }
@@ -230,7 +230,7 @@ async fn handle_ws_connection(
         } else {
             match socket.recv().await {
                 Some(Ok(m)) => {
-                    if dispatch_command(m, &mut socket, &state, &ctx, &channels,
+                    if dispatch_command(m, &mut socket, &state, &ctx, &mut channels,
                                        &mut rx, &mut active_channel_id).await.is_err() {
                         break;
                     }
@@ -256,7 +256,7 @@ async fn dispatch_command(
     socket:            &mut WebSocket,
     state:             &WebUiState,
     ctx:               &crate::webui_handlers::AgentContext,
-    channels:          &[crate::webui_handlers::ChannelInfo],
+    channels:          &mut Vec<crate::webui_handlers::ChannelInfo>,
     rx:                &mut Option<tokio::sync::broadcast::Receiver<Vec<u8>>>,
     active_channel_id: &mut Option<i64>,
 ) -> Result<(), ()> {
@@ -284,7 +284,7 @@ async fn dispatch_command(
             handle_send(channel, body, socket, state, ctx, channels).await
         }
         WsCommand::CreateChannel { name, description } => {
-            handle_create_channel(name, description, socket, state, ctx).await
+            handle_create_channel(name, description, socket, state, ctx, channels).await
         }
     }
 }
@@ -322,6 +322,9 @@ async fn handle_send(
     ctx:      &crate::webui_handlers::AgentContext,
     channels: &[crate::webui_handlers::ChannelInfo],
 ) -> Result<(), ()> {
+    if body.trim().is_empty() {
+        return Ok(());
+    }
     let ch = match channels.iter().find(|c| c.name == channel) {
         Some(c) => c,
         None => {
@@ -347,6 +350,7 @@ async fn handle_create_channel(
     socket:      &mut WebSocket,
     state:       &WebUiState,
     ctx:         &crate::webui_handlers::AgentContext,
+    channels:    &mut Vec<crate::webui_handlers::ChannelInfo>,
 ) -> Result<(), ()> {
     let Some(fleet_id) = ctx.fleet_id else {
         let err = serde_json::json!({"type":"error","code":"FORBIDDEN",
@@ -361,6 +365,8 @@ async fn handle_create_channel(
             let msg = serde_json::json!({"type":"channel_created",
                 "id":ch.id,"name":ch.name,"fleet":ch.fleet_name});
             let _ = socket.send(Message::Text(msg.to_string())).await;
+            // Update session channel list so subscribe/send work immediately
+            channels.push(ch);
         }
         Err(e) => {
             let is_conflict = e.to_string().contains("unique");
