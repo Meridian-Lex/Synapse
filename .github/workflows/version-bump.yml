@@ -1,0 +1,211 @@
+name: Version Bump
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  bump-version:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'master' && !startsWith(github.event.pull_request.head.ref, 'version-bump/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get current version
+        id: current_version
+        run: |
+          CURRENT_VERSION=$(cat VERSION)
+          echo "version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "Current version: ${CURRENT_VERSION}"
+
+      - name: Determine bump type
+        id: bump_type
+        run: |
+          COMMIT_MSG="$PR_TITLE"
+          PR_BODY_TEXT="$PR_BODY"
+
+          if echo "$COMMIT_MSG" | grep -qiE "^BREAKING CHANGE:|^breaking change:" || \
+             echo "$PR_BODY_TEXT" | grep -qiE "^BREAKING CHANGE:|^breaking change:"; then
+            BUMP_TYPE="major"
+          elif echo "$COMMIT_MSG" | grep -qiE "^feat(\(.+\))?:|^feature:"; then
+            BUMP_TYPE="minor"
+          elif echo "$COMMIT_MSG" | grep -qiE "^fix(\(.+\))?:|^bugfix:"; then
+            BUMP_TYPE="patch"
+          elif echo "$COMMIT_MSG" | grep -qiE "^major:"; then
+            BUMP_TYPE="major"
+          else
+            BUMP_TYPE="patch"
+          fi
+
+          echo "type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+
+      - name: Output bump type
+        run: echo "Bump type ${{ steps.bump_type.outputs.type }}"
+
+      - name: Bump version
+        id: new_version
+        run: |
+          CURRENT_VERSION="${{ steps.current_version.outputs.version }}"
+          BUMP_TYPE="${{ steps.bump_type.outputs.type }}"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+
+          case "$BUMP_TYPE" in
+            major) NEW_MAJOR=$((MAJOR + 1)); NEW_MINOR=0; NEW_PATCH=0 ;;
+            minor) NEW_MAJOR=$MAJOR; NEW_MINOR=$((MINOR + 1)); NEW_PATCH=0 ;;
+            patch) NEW_MAJOR=$MAJOR; NEW_MINOR=$MINOR; NEW_PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "New version: ${NEW_VERSION}"
+
+      - name: Update VERSION file
+        run: echo "${{ steps.new_version.outputs.version }}" > VERSION
+
+      - name: Update workspace Cargo.toml version
+        run: |
+          NEW_VER="${{ steps.new_version.outputs.version }}"
+          sed -i -E '/^\[workspace\.package\]/,/^\[/{s/^version = "[^"]*"/version = "'"$NEW_VER"'"/}' Cargo.toml
+          echo "Updated Cargo.toml workspace version to $NEW_VER"
+
+      - name: Verify version updates
+        run: |
+          echo "=== VERSION file ===" && cat VERSION
+          echo "=== Cargo.toml workspace.package.version ==="
+          grep -A5 '^\[workspace\.package\]' Cargo.toml | grep version
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+      - name: Verify binaries
+        run: |
+          test -f target/release/synapse-broker || (echo "synapse-broker missing" && exit 1)
+          test -f target/release/synapse        || (echo "synapse missing" && exit 1)
+
+      - name: Create version bump branch
+        id: create_branch
+        run: |
+          NEW_VER="${{ steps.new_version.outputs.version }}"
+          BRANCH_NAME="version-bump/${NEW_VER}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+          git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" && git branch -D "$BRANCH_NAME" || true
+          git ls-remote --heads origin "$BRANCH_NAME" | grep -qF "$BRANCH_NAME" && git push origin --delete "$BRANCH_NAME" || true
+          git checkout -b "$BRANCH_NAME"
+
+      - name: Commit version bump
+        run: |
+          git add VERSION Cargo.toml
+          if git diff --cached --exit-code > /dev/null; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: bump version to ${{ steps.new_version.outputs.version }}"
+          fi
+
+      - name: Push version-bump branch
+        run: |
+          git push --force-with-lease origin "${{ steps.create_branch.outputs.branch_name }}" || \
+            (echo "Error: Failed to push version-bump branch" && exit 1)
+
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "chore" --description "Chore: maintenance tasks" --color "d4c5f9" --force || true
+          gh label create "automated" --description "Automated PR" --color "0e8a16" --force || true
+
+      - name: Create pull request
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
+        run: |
+          NEW_VER="${{ steps.new_version.outputs.version }}"
+          OLD_VER="${{ steps.current_version.outputs.version }}"
+          PR_NUM="${{ github.event.pull_request.number }}"
+          BUMP_TYPE="${{ steps.bump_type.outputs.type }}"
+
+          printf "Version bump triggered by merged PR #%s\n\nAutomated bump from %s to %s.\nBump type: %s\nOriginal PR: #%s (%s)\n" \
+            "$PR_NUM" "$OLD_VER" "$NEW_VER" "$BUMP_TYPE" "$PR_NUM" "$PR_TITLE" > /tmp/pr_body.txt
+
+          EXISTING_PR=$(gh pr list --head "version-bump/$NEW_VER" --json url --jq '.[0].url' || echo "")
+
+          if [ -n "$EXISTING_PR" ]; then
+            PR_URL="$EXISTING_PR"
+          else
+            PR_URL=$(gh pr create \
+              --base master \
+              --head "version-bump/$NEW_VER" \
+              --title "chore: bump version to $NEW_VER" \
+              --body-file /tmp/pr_body.txt \
+              --label "chore" \
+              --label "automated")
+          fi
+
+          [ -z "$PR_URL" ] && (echo "Error: Failed to create PR" && exit 1)
+          echo "Created PR: $PR_URL"
+
+          PR_NUMBER=$(echo "$PR_URL" | grep -oP '\d+$')
+          [ -z "$PR_NUMBER" ] && (echo "::error::Failed to extract PR number" && exit 1)
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Auto-approve PR
+        env:
+          GH_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::LEXCODE_TOKEN not configured - skipping auto-approval"
+          elif ! gh pr review "${{ steps.create_pr.outputs.PR_NUMBER }}" \
+            --repo "${{ github.repository }}" \
+            --approve \
+            --body "Automated approval by LexCode for version bump to ${{ steps.new_version.outputs.version }}"; then
+            echo "::warning::Failed to auto-approve PR"
+          fi
+
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge "${{ steps.create_pr.outputs.PR_NUMBER }}" --auto --merge --delete-branch || \
+            echo "::warning::Failed to enable auto-merge"
+
+      - name: Report version bump
+        run: |
+          {
+            echo "## Version Bump Summary"
+            echo "- **Previous:** ${{ steps.current_version.outputs.version }}"
+            echo "- **New:** ${{ steps.new_version.outputs.version }}"
+            echo "- **Type:** ${{ steps.bump_type.outputs.type }}"
+            echo "- **PR:** #${{ github.event.pull_request.number }}"
+            echo "- **Title:** $PR_TITLE"
+          } >> $GITHUB_STEP_SUMMARY
