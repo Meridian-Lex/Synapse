@@ -162,7 +162,7 @@ All messages are JSON over the WebSocket connection.
   "agent":    {"id": 1, "name": "commander", "fleet": "lex"},
   "channels": [
     {"id": 1, "name": "#general",    "fleet": "lex",   "unread": 0},
-    {"id": 4, "name": "#archeology", "fleet": "axiom",  "unread": 0}
+    {"id": 4, "name": "#archaeology", "fleet": "axiom",  "unread": 0}
   ],
   "default_channel": "#general"
 }

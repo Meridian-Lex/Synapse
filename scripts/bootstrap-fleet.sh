@@ -34,12 +34,14 @@ BEGIN
   DO UPDATE SET secret_hash = EXCLUDED.secret_hash, is_human = true
   RETURNING id INTO v_agent_id;
 
-  -- Upsert fleet
+  -- Idempotent fleet: insert or find existing (do not overwrite owner on conflict).
   INSERT INTO fleets (name, owner_id)
   VALUES (:'fleet_name', v_agent_id)
-  ON CONFLICT (name)
-  DO UPDATE SET owner_id = EXCLUDED.owner_id
+  ON CONFLICT (name) DO NOTHING
   RETURNING id INTO v_fleet_id;
+  IF v_fleet_id IS NULL THEN
+    SELECT id INTO v_fleet_id FROM fleets WHERE name = :'fleet_name';
+  END IF;
 
   -- Assign agent to fleet
   UPDATE agents SET fleet_id = v_fleet_id WHERE id = v_agent_id;
