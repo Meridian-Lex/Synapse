@@ -17,6 +17,12 @@ pub async fn write_frame<W: AsyncWrite + Unpin>(
     header: &FrameHeader,
     payload: &[u8],
 ) -> Result<(), ProtoError> {
+    if header.payload_len as usize != payload.len() {
+        return Err(ProtoError::PayloadLengthMismatch {
+            expected: header.payload_len,
+            actual: payload.len() as u32,
+        });
+    }
     writer.write_all(&header.to_bytes()).await?;
     if !payload.is_empty() { writer.write_all(payload).await?; }
     writer.flush().await?;
@@ -50,5 +56,21 @@ mod tests {
         let (h, p) = read_frame(&mut cursor).await.unwrap();
         assert_eq!(h.msg_type, MsgType::Pong);
         assert!(p.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_codec_length_mismatch_returns_error() {
+        let header = FrameHeader::new(MsgType::Ping, 1, 10);
+        let payload = b"short".to_vec(); // only 5 bytes, header says 10
+        let mut buf = Vec::new();
+        let result = write_frame(&mut buf, &header, &payload).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ProtoError::PayloadLengthMismatch { expected, actual } => {
+                assert_eq!(expected, 10);
+                assert_eq!(actual, 5);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

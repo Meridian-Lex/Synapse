@@ -16,4 +16,6 @@ pub enum ProtoError {
     Io(#[from] std::io::Error),
     #[error("insufficient data")]
     Incomplete,
+    #[error("payload length mismatch: expected {expected} bytes, actual {actual} bytes")]
+    PayloadLengthMismatch { expected: u32, actual: u32 },
 }

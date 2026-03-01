@@ -34,7 +34,7 @@ pub async fn authenticate<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpi
         client_version: env!("CARGO_PKG_VERSION").into(),
         capabilities: 0,
     };
-    let payload = hello.encode();
+    let payload = hello.encode()?;
     write_frame(stream, &FrameHeader::new(MsgType::Hello, rand::random(), payload.len() as u32), &payload).await?;
 
     let (ch, nonce_bytes) = read_frame(stream).await?;

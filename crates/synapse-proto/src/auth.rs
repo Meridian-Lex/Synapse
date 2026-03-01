@@ -11,25 +11,36 @@ pub struct HelloPayload {
 }
 
 impl HelloPayload {
-    pub fn encode(&self) -> Vec<u8> {
+    pub fn encode(&self) -> Result<Vec<u8>, ProtoError> {
         let name = self.agent_name.as_bytes();
         let ver  = self.client_version.as_bytes();
+        if name.len() > u16::MAX as usize {
+            return Err(ProtoError::FrameTooLarge(name.len() as u32));
+        }
+        if ver.len() > u16::MAX as usize {
+            return Err(ProtoError::FrameTooLarge(ver.len() as u32));
+        }
         let mut buf = Vec::with_capacity(2 + name.len() + 2 + ver.len() + 4);
         buf.extend_from_slice(&(name.len() as u16).to_be_bytes());
         buf.extend_from_slice(name);
         buf.extend_from_slice(&(ver.len() as u16).to_be_bytes());
         buf.extend_from_slice(ver);
         buf.extend_from_slice(&self.capabilities.to_be_bytes());
-        buf
+        Ok(buf)
     }
 
     pub fn decode(buf: &[u8]) -> Result<Self, ProtoError> {
-        let mut p = 0;
-        let nl = u16::from_be_bytes([buf[p], buf[p+1]]) as usize; p += 2;
-        let agent_name = String::from_utf8_lossy(&buf[p..p+nl]).into_owned(); p += nl;
-        let vl = u16::from_be_bytes([buf[p], buf[p+1]]) as usize; p += 2;
-        let client_version = String::from_utf8_lossy(&buf[p..p+vl]).into_owned(); p += vl;
-        let capabilities = u32::from_be_bytes(buf[p..p+4].try_into().unwrap());
+        let mut p = 0usize;
+        if buf.len() < p + 2 { return Err(ProtoError::Incomplete); }
+        let nl = u16::from_be_bytes([buf[p], buf[p + 1]]) as usize; p += 2;
+        if buf.len() < p + nl { return Err(ProtoError::Incomplete); }
+        let agent_name = String::from_utf8_lossy(&buf[p..p + nl]).into_owned(); p += nl;
+        if buf.len() < p + 2 { return Err(ProtoError::Incomplete); }
+        let vl = u16::from_be_bytes([buf[p], buf[p + 1]]) as usize; p += 2;
+        if buf.len() < p + vl { return Err(ProtoError::Incomplete); }
+        let client_version = String::from_utf8_lossy(&buf[p..p + vl]).into_owned(); p += vl;
+        if buf.len() < p + 4 { return Err(ProtoError::Incomplete); }
+        let capabilities = u32::from_be_bytes(buf[p..p + 4].try_into().unwrap()); // safe: checked
         Ok(Self { agent_name, client_version, capabilities })
     }
 }
@@ -54,7 +65,8 @@ mod tests {
     #[test]
     fn test_hello_encode_decode() {
         let hello = HelloPayload { agent_name: "lex".into(), client_version: "0.1.0".into(), capabilities: 0 };
-        let decoded = HelloPayload::decode(&hello.encode()).unwrap();
+        let encoded = hello.encode().unwrap();
+        let decoded = HelloPayload::decode(&encoded).unwrap();
         assert_eq!(decoded.agent_name, "lex");
         assert_eq!(decoded.client_version, "0.1.0");
     }
@@ -71,5 +83,13 @@ mod tests {
         let nonce = [0xab; 32];
         let resp = compute_hmac(b"correct", &nonce);
         assert!(!verify_hmac(b"wrong", &nonce, &resp));
+    }
+
+    #[test]
+    fn test_decode_incomplete_returns_error() {
+        assert!(HelloPayload::decode(&[]).is_err());
+        assert!(HelloPayload::decode(&[0x00]).is_err());
+        // 2 bytes for name length (3), but no name bytes follow
+        assert!(HelloPayload::decode(&[0x00, 0x03]).is_err());
     }
 }

@@ -6,7 +6,8 @@ broker:
   max_frame_bytes: 4194304
 
 postgres:
-  url: "postgresql://synapse:changeme@localhost:5432/synapse"
+  # Replace __REPLACE_ME__ with a real password before deployment
+  url: "postgresql://synapse:__REPLACE_ME__@localhost:5432/synapse"
 
 redis:
   url: "redis://localhost:6379"

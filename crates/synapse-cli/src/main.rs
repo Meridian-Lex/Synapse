@@ -2,7 +2,7 @@ mod client;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use synapse_proto::{codec::{read_frame, write_frame}, frame::{FrameHeader, MsgType}};
+use synapse_proto::{codec::{read_frame, write_frame}, frame::{Encoding, FrameHeader, MsgType}};
 
 #[derive(Parser)]
 #[command(name = "synapse", about = "Synapse fleet communications client")]
@@ -44,7 +44,20 @@ async fn main() -> Result<()> {
                 let (hdr, payload) = read_frame(&mut stream).await?;
                 match hdr.msg_type {
                     MsgType::Msg if payload.len() > 17 && payload[0] == 0x01 => {
-                        println!("{}", String::from_utf8_lossy(&payload[17..]));
+                        let data = if hdr.encoding == Encoding::Zstd {
+                            match synapse_proto::compression::decompress(&payload) {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    eprintln!("Decompression failed: {e}");
+                                    continue;
+                                }
+                            }
+                        } else {
+                            payload
+                        };
+                        if data.len() > 17 && data[0] == 0x01 {
+                            println!("{}", String::from_utf8_lossy(&data[17..]));
+                        }
                     }
                     MsgType::Ping => {
                         write_frame(&mut stream, &FrameHeader::new(MsgType::Pong, hdr.message_id, 0), &[]).await?;

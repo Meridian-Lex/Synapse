@@ -31,8 +31,20 @@ pub struct WebuiSection { pub enabled: bool, pub listen: String, pub read_only: 
 pub struct RateLimitSection { pub messages_per_minute: u32 }
 
 pub fn load(path: &str) -> anyhow::Result<BrokerConfig> {
-    Ok(config::Config::builder()
+    let cfg: BrokerConfig = config::Config::builder()
         .add_source(config::File::with_name(path))
         .build()?
-        .try_deserialize()?)
+        .try_deserialize()?;
+
+    if cfg.broker.session_ttl_seconds == 0 {
+        return Err(anyhow::anyhow!("broker.session_ttl_seconds must be > 0"));
+    }
+    if cfg.broker.max_frame_bytes == 0 {
+        return Err(anyhow::anyhow!("broker.max_frame_bytes must be > 0"));
+    }
+    if cfg.rate_limit.messages_per_minute == 0 {
+        return Err(anyhow::anyhow!("rate_limit.messages_per_minute must be > 0"));
+    }
+
+    Ok(cfg)
 }
