@@ -44,7 +44,7 @@ async fn run_inner<S>(
 ) -> Result<()>
 where S: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut ticker = interval(Duration::from_secs(15));
+    let mut ticker = interval(Duration::from_secs(5));
 
     // Outbound channel: subscription forwarder tasks send raw frames here,
     // the select loop writes them to the client stream.
@@ -93,6 +93,13 @@ where S: AsyncRead + AsyncWrite + Unpin,
                                 }
                             });
                             tracing::info!("{} subscribed to {}", agent.agent_name, name);
+                            // Reply with resolved channel_id so the client can address
+                            // Msg frames to the correct channel without guessing.
+                            write_frame(
+                                stream,
+                                &FrameHeader::new(MsgType::SubscribeAck, hdr.message_id, 8),
+                                &cid.to_be_bytes(),
+                            ).await?;
                         }
                     }
                     MsgType::Msg => {
