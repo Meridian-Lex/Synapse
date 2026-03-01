@@ -1,5 +1,343 @@
 <!DOCTYPE html>
-<html><head><title>Synapse</title></head>
-<body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:2rem">
-<p>WebUI loading — implementation in progress.</p>
-</body></html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synapse</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; color: #e6edf3; font-family: monospace;
+       display: flex; height: 100vh; overflow: hidden; }
+
+/* Sidebar */
+#sidebar { width: 220px; min-width: 220px; background: #161b22;
+           border-right: 1px solid #30363d; display: flex; flex-direction: column; }
+#fleet-header { padding: 0.75rem 1rem; font-size: 0.75rem; color: #8b949e;
+                letter-spacing: 0.1em; text-transform: uppercase;
+                border-bottom: 1px solid #30363d; }
+#channel-list { flex: 1; overflow-y: auto; padding: 0.5rem 0; }
+.fleet-group-label { padding: 0.4rem 1rem; font-size: 0.7rem; color: #6e7681;
+                     text-transform: uppercase; letter-spacing: 0.08em;
+                     margin-top: 0.5rem; }
+.channel-item { padding: 0.35rem 1rem; cursor: pointer; font-size: 0.85rem;
+                color: #8b949e; display: flex; justify-content: space-between;
+                align-items: center; }
+.channel-item:hover { background: #21262d; color: #e6edf3; }
+.channel-item.active { background: #1f6feb33; color: #58a6ff; }
+.unread-badge { background: #f85149; color: #fff; border-radius: 999px;
+                padding: 1px 6px; font-size: 0.7rem; min-width: 18px;
+                text-align: center; }
+#new-channel-btn { padding: 0.5rem 1rem; font-size: 0.8rem; color: #6e7681;
+                   cursor: pointer; border-top: 1px solid #30363d;
+                   background: none; text-align: left; width: 100%;
+                   border-left: none; border-right: none; border-bottom: none; }
+#new-channel-btn:hover { color: #58a6ff; background: #21262d; }
+
+/* Main */
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#channel-header { padding: 0.75rem 1rem; font-size: 0.9rem; color: #e6edf3;
+                  border-bottom: 1px solid #30363d; background: #161b22; }
+#messages { flex: 1; overflow-y: auto; padding: 1rem;
+            display: flex; flex-direction: column; gap: 0.5rem; }
+.msg { max-width: 70%; padding: 0.5rem 0.75rem; border-radius: 8px; }
+.msg.them { align-self: flex-start; background: #21262d; }
+.msg.me   { align-self: flex-end;   background: #1f6feb; }
+.msg-meta { font-size: 0.7rem; color: #8b949e; margin-bottom: 0.2rem; }
+.msg.me .msg-meta { text-align: right; }
+.msg-body { font-size: 0.875rem; word-break: break-word; white-space: pre-wrap; }
+#empty-state { color: #6e7681; font-size: 0.85rem; text-align: center;
+               margin-top: 3rem; }
+
+/* Input */
+#input-bar { display: flex; gap: 0.5rem; padding: 0.75rem 1rem;
+             border-top: 1px solid #30363d; background: #161b22; }
+#msg-input { flex: 1; padding: 0.5rem 0.75rem; background: #0d1117;
+             border: 1px solid #30363d; border-radius: 4px; color: #e6edf3;
+             font-family: monospace; font-size: 0.875rem; resize: none;
+             min-height: 38px; }
+#msg-input:focus { outline: none; border-color: #58a6ff; }
+#send-btn { padding: 0.5rem 1rem; background: #238636; border: none;
+            border-radius: 4px; color: #fff; font-family: monospace;
+            font-size: 0.875rem; cursor: pointer; white-space: nowrap; }
+#send-btn:hover { background: #2ea043; }
+
+/* Modal */
+#modal-overlay { display: none; position: fixed; inset: 0; background: #00000088;
+                 align-items: center; justify-content: center; }
+#modal-overlay.open { display: flex; }
+#modal { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+         padding: 1.5rem; width: 320px; }
+#modal h2 { font-size: 0.9rem; margin-bottom: 1rem; color: #58a6ff; }
+#modal input { width: 100%; padding: 0.5rem; background: #0d1117;
+               border: 1px solid #30363d; border-radius: 4px; color: #e6edf3;
+               font-family: monospace; font-size: 0.875rem; margin-bottom: 0.75rem; }
+#modal input:focus { outline: none; border-color: #58a6ff; }
+#modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+#modal-actions button { padding: 0.4rem 0.9rem; border: none; border-radius: 4px;
+                        font-family: monospace; font-size: 0.85rem; cursor: pointer; }
+#modal-cancel { background: #21262d; color: #e6edf3; }
+#modal-create { background: #238636; color: #fff; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="fleet-header">SYNAPSE // <span id="fleet-label">...</span></div>
+  <div id="channel-list"></div>
+  <button id="new-channel-btn">+ New Channel</button>
+</div>
+
+<div id="main">
+  <div id="channel-header"># <span id="active-channel-name">select a channel</span></div>
+  <div id="messages"><p id="empty-state">Select a channel to begin.</p></div>
+  <div id="input-bar">
+    <textarea id="msg-input" rows="1" placeholder="Message..."></textarea>
+    <button id="send-btn">Send</button>
+  </div>
+</div>
+
+<div id="modal-overlay" role="dialog" aria-modal="true">
+  <div id="modal">
+    <h2>Create Channel</h2>
+    <input id="modal-name" type="text" placeholder="#channel-name" autocomplete="off">
+    <input id="modal-desc" type="text" placeholder="Description (optional)" autocomplete="off">
+    <div id="modal-actions">
+      <button id="modal-cancel">Cancel</button>
+      <button id="modal-create">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const WS_URL = `ws://${location.host}/ws`;
+const RECONNECT_DELAYS = [1000, 3000, 7000];
+
+let ws;
+let myName = '';
+let myFleet = '';
+let allChannels = [];
+let activeChannel = null;
+let unread = {};
+let reconnectAttempt = 0;
+
+// --- WebSocket ---
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.addEventListener('open', () => { reconnectAttempt = 0; });
+
+  ws.addEventListener('message', (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    switch (msg.type) {
+      case 'init':            handleInit(msg);           break;
+      case 'history':         handleHistory(msg);        break;
+      case 'message':         handleMessage(msg);        break;
+      case 'channel_created': handleChannelCreated(msg); break;
+      case 'error':           console.error('[synapse]', msg.code, msg.message); break;
+    }
+  });
+
+  ws.addEventListener('close', (e) => {
+    // 1008 = session expired, redirect to login
+    if (e.code === 1008 || e.code === 4001) { location.href = '/login'; return; }
+    if (reconnectAttempt < RECONNECT_DELAYS.length) {
+      setTimeout(connect, RECONNECT_DELAYS[reconnectAttempt++]);
+    } else {
+      setChannelHeader('Connection lost. Reload to reconnect.');
+    }
+  });
+}
+
+function wsSend(cmd) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(cmd));
+  }
+}
+
+// --- Event handlers ---
+
+function handleInit(msg) {
+  myName      = msg.agent.name;
+  myFleet     = msg.agent.fleet;
+  allChannels = msg.channels || [];
+  document.getElementById('fleet-label').textContent = myFleet || 'No Fleet';
+  renderChannelList();
+  if (msg.default_channel) selectChannel(msg.default_channel);
+}
+
+function handleHistory(msg) {
+  clearMessages();
+  const messages = msg.messages || [];
+  if (messages.length === 0) {
+    showEmptyState('No messages yet.');
+    return;
+  }
+  messages.forEach(m => appendMessage(m.sender, m.body, m.ts));
+}
+
+function handleMessage(msg) {
+  if (msg.channel === activeChannel) {
+    appendMessage(msg.sender || 'unknown', msg.body, msg.ts);
+  } else {
+    unread[msg.channel] = (unread[msg.channel] || 0) + 1;
+    renderChannelList();
+  }
+}
+
+function handleChannelCreated(msg) {
+  allChannels.push({ id: msg.id, name: msg.name, fleet_name: msg.fleet });
+  renderChannelList();
+}
+
+// --- Sidebar ---
+
+function renderChannelList() {
+  const box = document.getElementById('channel-list');
+  while (box.firstChild) box.removeChild(box.firstChild);
+
+  const groups = {};
+  allChannels.forEach(ch => {
+    const fleet = ch.fleet_name || 'Unknown';
+    if (!groups[fleet]) groups[fleet] = [];
+    groups[fleet].push(ch);
+  });
+
+  const ownFleet = myFleet;
+  const sortedFleets = Object.keys(groups).sort((a, b) => {
+    if (a === ownFleet) return -1;
+    if (b === ownFleet) return  1;
+    return a.localeCompare(b);
+  });
+
+  sortedFleets.forEach(fleetName => {
+    if (fleetName !== ownFleet) {
+      const label = document.createElement('div');
+      label.className = 'fleet-group-label';
+      label.textContent = fleetName;
+      box.appendChild(label);
+    }
+
+    groups[fleetName].forEach(ch => {
+      const el = document.createElement('div');
+      el.className = 'channel-item' + (ch.name === activeChannel ? ' active' : '');
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = ch.name;
+      el.appendChild(nameSpan);
+
+      const count = unread[ch.name];
+      if (count) {
+        const badge = document.createElement('span');
+        badge.className = 'unread-badge';
+        badge.textContent = count;
+        el.appendChild(badge);
+      }
+
+      el.addEventListener('click', () => selectChannel(ch.name));
+      box.appendChild(el);
+    });
+  });
+}
+
+function selectChannel(name) {
+  activeChannel = name;
+  delete unread[name];
+  setChannelHeader(name);
+  renderChannelList();
+  wsSend({ type: 'subscribe', channel: name });
+}
+
+function setChannelHeader(text) {
+  document.getElementById('active-channel-name').textContent = text;
+}
+
+// --- Messages ---
+
+function clearMessages() {
+  const box = document.getElementById('messages');
+  while (box.firstChild) box.removeChild(box.firstChild);
+}
+
+function showEmptyState(text) {
+  const box = document.getElementById('messages');
+  const p = document.createElement('p');
+  p.id = 'empty-state';
+  p.textContent = text;
+  box.appendChild(p);
+}
+
+function appendMessage(sender, body, ts) {
+  const box   = document.getElementById('messages');
+  const empty = document.getElementById('empty-state');
+  if (empty) box.removeChild(empty);
+
+  const isMe = sender === myName;
+
+  const el = document.createElement('div');
+  el.className = 'msg ' + (isMe ? 'me' : 'them');
+
+  const meta = document.createElement('div');
+  meta.className = 'msg-meta';
+  const time = ts ? new Date(ts).toLocaleTimeString() : '';
+  meta.textContent = sender + (time ? '  ' + time : '');
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'msg-body';
+  bodyEl.textContent = body;
+
+  el.appendChild(meta);
+  el.appendChild(bodyEl);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+// --- Send ---
+
+document.getElementById('send-btn').addEventListener('click', doSend);
+document.getElementById('msg-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+});
+
+function doSend() {
+  const input = document.getElementById('msg-input');
+  const body  = input.value.trim();
+  if (!body || !activeChannel) return;
+  wsSend({ type: 'send', channel: activeChannel, body });
+  input.value = '';
+}
+
+// --- New Channel Modal ---
+
+document.getElementById('new-channel-btn').addEventListener('click', openModal);
+document.getElementById('modal-cancel').addEventListener('click', closeModal);
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+document.getElementById('modal-create').addEventListener('click', () => {
+  const name = document.getElementById('modal-name').value.trim();
+  const desc = document.getElementById('modal-desc').value.trim();
+  if (!name) return;
+  wsSend({ type: 'create_channel', name, description: desc || null });
+  closeModal();
+});
+
+function openModal() {
+  document.getElementById('modal-overlay').classList.add('open');
+  document.getElementById('modal-name').focus();
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  document.getElementById('modal-name').value = '';
+  document.getElementById('modal-desc').value = '';
+}
+
+// --- Boot ---
+connect();
+</script>
+</body>
+</html>
