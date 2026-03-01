@@ -6,7 +6,7 @@ use axum::{
     },
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::get,
     Router as AxumRouter,
 };
 use chrono::Utc;
@@ -200,13 +200,17 @@ async fn handle_ws_connection(
                     match result {
                         Ok(frame) => {
                             if let Some(json) = crate::webui_handlers::frame_to_json(
-                                &frame, active_channel_id, &channels, &ctx.agent_name,
-                            ) {
+                                &frame, &state.pool, active_channel_id, &channels,
+                            ).await {
                                 if socket.send(Message::Text(json)).await.is_err() { break; }
                             }
                         }
-                        Err(e) => {
-                            warn!("webui: broadcast lag: {}", e);
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!("webui: broadcast lagged, dropped {} messages", n);
+                            // Receiver is still valid — continue without disconnecting
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            warn!("webui: broadcast channel closed");
                             break;
                         }
                     }
@@ -359,9 +363,12 @@ async fn handle_create_channel(
             let _ = socket.send(Message::Text(msg.to_string())).await;
         }
         Err(e) => {
-            let code = if e.to_string().contains("unique") { "CONFLICT" } else { "INTERNAL" };
-            let err = serde_json::json!({"type":"error","code":code,
-                "message":format!("Could not create channel: {e}")});
+            let is_conflict = e.to_string().contains("unique");
+            let code    = if is_conflict { "CONFLICT" } else { "INTERNAL" };
+            let message = if is_conflict { "Channel name already exists." }
+                          else           { "Could not create channel. Please try again." };
+            warn!("webui: create_channel error: {}", e);
+            let err = serde_json::json!({"type":"error","code":code,"message":message});
             let _ = socket.send(Message::Text(err.to_string())).await;
         }
     }
