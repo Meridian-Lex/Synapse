@@ -138,7 +138,8 @@ function connect() {
       case 'init':            handleInit(msg);           break;
       case 'history':         handleHistory(msg);        break;
       case 'message':         handleMessage(msg);        break;
-      case 'channel_created': handleChannelCreated(msg); break;
+      case 'channel_created':      handleChannelCreated(msg);      break;
+      case 'channel_list_updated': handleChannelListUpdated(msg); break;
       case 'error':           console.error('[synapse]', msg.code, msg.message); break;
     }
   });
@@ -192,6 +193,11 @@ function handleMessage(msg) {
 
 function handleChannelCreated(msg) {
   allChannels.push({ id: msg.id, name: msg.name, fleet_name: msg.fleet });
+  renderChannelList();
+}
+
+function handleChannelListUpdated(msg) {
+  allChannels = msg.channels || [];
   renderChannelList();
 }
 
