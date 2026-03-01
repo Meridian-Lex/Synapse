@@ -196,7 +196,7 @@ async fn handle_ws_connection(
     }
 
     let mut rx: Option<tokio::sync::broadcast::Receiver<Vec<u8>>> = None;
-    let mut fleet_rx: Option<tokio::sync::broadcast::Receiver<String>> = match ctx.fleet_id {
+    let mut fleet_rx: Option<tokio::sync::broadcast::Receiver<()>> = match ctx.fleet_id {
         Some(fid) => Some(state.broker_router.subscribe_fleet(fid).await),
         None => None,
     };
@@ -223,14 +223,32 @@ async fn handle_ws_connection(
                 }
             }
             event = fleet_recv(&mut fleet_rx) => {
-                if event.is_some() {
-                    if let Some(fid) = ctx.fleet_id {
-                        channels = crate::webui_handlers::fetch_channel_list(&state.pool, fid).await;
-                        let upd = serde_json::json!({
-                            "type": "channel_list_updated",
-                            "channels": channels,
-                        });
-                        if socket.send(Message::Text(upd.to_string())).await.is_err() { break; }
+                match event {
+                    Ok(()) => {
+                        if let Some(fid) = ctx.fleet_id {
+                            channels = crate::webui_handlers::fetch_channel_list(&state.pool, fid).await;
+                            let upd = serde_json::json!({
+                                "type": "channel_list_updated",
+                                "channels": channels,
+                            });
+                            if socket.send(Message::Text(upd.to_string())).await.is_err() { break; }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("webui: fleet broadcast lagged, dropped {} events", n);
+                        // Refresh anyway — at least one event was missed
+                        if let Some(fid) = ctx.fleet_id {
+                            channels = crate::webui_handlers::fetch_channel_list(&state.pool, fid).await;
+                            let upd = serde_json::json!({
+                                "type": "channel_list_updated",
+                                "channels": channels,
+                            });
+                            if socket.send(Message::Text(upd.to_string())).await.is_err() { break; }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        // Fleet broadcast channel gone; disable future polling to avoid spin
+                        fleet_rx = None;
                     }
                 }
             }
@@ -261,12 +279,16 @@ async fn channel_recv(
     }
 }
 
+/// Like channel_recv but for fleet-level unit signals.
+/// Returns Result so the caller can distinguish Closed (disable polling)
+/// from Lagged (missed events but still alive) rather than silently
+/// converting both to None and risking a tight select! spin.
 async fn fleet_recv(
-    rx: &mut Option<tokio::sync::broadcast::Receiver<String>>,
-) -> Option<String> {
+    rx: &mut Option<tokio::sync::broadcast::Receiver<()>>,
+) -> Result<(), tokio::sync::broadcast::error::RecvError> {
     match rx {
-        Some(r) => r.recv().await.ok(),
-        None    => std::future::pending::<Option<String>>().await,
+        Some(r) => r.recv().await,
+        None    => std::future::pending::<Result<(), tokio::sync::broadcast::error::RecvError>>().await,
     }
 }
 
@@ -394,8 +416,8 @@ async fn handle_create_channel(
             let msg = serde_json::json!({"type":"channel_created",
                 "id":ch.id,"name":ch.name,"fleet":ch.fleet_name});
             let _ = socket.send(Message::Text(msg.to_string())).await;
-            // Notify all fleet sessions that the channel list has changed
-            state.broker_router.notify_fleet(fleet_id, "channels_updated".to_string()).await;
+            // Signal all fleet sessions that the channel list has changed
+            state.broker_router.notify_fleet(fleet_id).await;
             // Update session channel list so subscribe/send work immediately
             channels.push(ch);
         }
