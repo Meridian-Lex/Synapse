@@ -8,6 +8,7 @@ jobs:
   bump-version:
     if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'master' && !startsWith(github.event.pull_request.head.ref, 'version-bump/')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
@@ -31,7 +32,7 @@ jobs:
       - name: Get current version
         id: current_version
         run: |
-          CURRENT_VERSION=$(cat VERSION)
+          CURRENT_VERSION=$(cat VERSION | tr -d '[:space:]')
           echo "version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
           echo "Current version: ${CURRENT_VERSION}"
 
@@ -126,7 +127,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add VERSION Cargo.toml
+          git add VERSION Cargo.toml Cargo.lock
           if git diff --cached --exit-code > /dev/null; then
             echo "No changes to commit"
           else
@@ -180,6 +181,9 @@ jobs:
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Auto-approve PR
+        # Note: uses LEXCODE_TOKEN (LexCode OAuth app) for approval.
+        # Ensure LEXCODE_TOKEN belongs to a different account than the PR creator
+        # to satisfy branch protection rules requiring distinct approvers.
         env:
           GH_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
         run: |

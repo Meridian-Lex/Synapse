@@ -23,5 +23,5 @@ thiserror          = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
 config             = { workspace = true }
-rustls-pemfile     = "2"
+rustls-pemfile     = { workspace = true }
 tokio-tungstenite  = "0.24"
