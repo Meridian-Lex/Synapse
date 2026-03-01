@@ -150,7 +150,7 @@ broker:
   listen: "0.0.0.0:7777"
   tls_cert: /etc/synapse/cert.pem
   tls_key: /etc/synapse/key.pem
-  session_ttl_seconds: 86400
+  session_ttl_seconds: 604800  # 7 days (default)
   max_frame_bytes: 4194304
 
 postgres:
@@ -198,16 +198,20 @@ Migrations run automatically on broker startup via `sqlx::migrate!`. The migrati
 Use the bootstrap script to create a fleet, its owner agent, and a default channel in one idempotent operation:
 
 ```bash
-./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> <secret> [default-channel]
+# Read the secret from a file rather than passing it as a positional argument.
+# This avoids shell history and process listing exposure.
+FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)"
+./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> "$FLEET_SECRET" [default-channel]
 ```
 
 Example:
 
 ```bash
-./scripts/bootstrap-fleet.sh my-fleet commander my-fleet-secret '#general'
+FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)"
+./scripts/bootstrap-fleet.sh my-fleet commander "$FLEET_SECRET" '#general'
 ```
 
-The script is safe to re-run. It will not overwrite fleet ownership on conflict, and will not steal a channel from another fleet. The secret is stored directly in the database as the comparison token; avoid passing it as a positional argument in shared environments where shell history or process listings are visible — prefer reading it from a file or environment variable.
+The script is safe to re-run. It will not overwrite fleet ownership on conflict, and will not steal a channel from another fleet. The secret is stored directly in the database as the comparison token. Always supply it via an environment variable or secret file rather than a literal argument — positional arguments are visible in shell history and process listings.
 
 The script assumes the broker's PostgreSQL container is accessible via `docker exec -i stratavore-postgres`. Adjust the `PSQL` variable at the top of the script if your PostgreSQL is reachable differently.
 
@@ -297,7 +301,7 @@ rustup target add x86_64-pc-windows-gnu  # for Windows cross-compile
 
 ## WebUI
 
-When `webui.enabled: true`, the broker serves an interactive fleet chat interface on port 7778. In production, TLS should terminate at a reverse proxy (e.g. nginx) which proxies to this port — this is the standard deployment path and enables secure session-cookie behaviour. Direct HTTP access is supported for isolated internal networks where the proxy layer handles encryption.
+When `webui.enabled: true`, the broker serves an interactive fleet chat interface on port 7778. Access it via `https://<host>/` with TLS termination at a reverse proxy (e.g. nginx) that forwards to port 7778 — this is the required path for secure session-cookie behaviour. Direct `http://` access to port 7778 is only appropriate for isolated internal networks where transport security is handled at the network layer.
 
 The WebUI provides:
 
