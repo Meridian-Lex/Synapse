@@ -89,9 +89,22 @@ jobs:
 
       - name: Verify version updates
         run: |
+          NEW_VER="${{ steps.new_version.outputs.version }}"
+          VERSION_VER="$(tr -d '[:space:]' < VERSION)"
+          CARGO_VER="$(awk '
+            /^\[workspace\.package\]$/ { in_ws=1; next }
+            /^\[/ { in_ws=0 }
+            in_ws && /^version = "/ {
+              gsub(/^version = "/, "", $0); gsub(/"$/, "", $0); print; exit
+            }' Cargo.toml)"
+
           echo "=== VERSION file ===" && cat VERSION
           echo "=== Cargo.toml workspace.package.version ==="
           grep -A5 '^\[workspace\.package\]' Cargo.toml | grep version
+
+          [ "$VERSION_VER" = "$NEW_VER" ] || (echo "Error: VERSION mismatch: got $VERSION_VER expected $NEW_VER" && exit 1)
+          [ "$CARGO_VER" = "$NEW_VER" ] || (echo "Error: Cargo.toml workspace version mismatch: got $CARGO_VER expected $NEW_VER" && exit 1)
+          echo "Version assertions passed: $NEW_VER"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -181,18 +194,18 @@ jobs:
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Auto-approve PR
-        # Note: uses LEXCODE_TOKEN (LexCode OAuth app) for approval.
-        # Ensure LEXCODE_TOKEN belongs to a different account than the PR creator
-        # to satisfy branch protection rules requiring distinct approvers.
+        # Note: APPROVER_TOKEN must belong to a different account than the PR creator
+        # (LEXCODE_TOKEN) to satisfy branch protection rules requiring distinct approvers.
+        # Configure APPROVER_TOKEN as a repo secret with a separate GitHub account/app.
         env:
-          GH_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
+          GH_TOKEN: ${{ secrets.APPROVER_TOKEN }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::LEXCODE_TOKEN not configured - skipping auto-approval"
+            echo "::warning::APPROVER_TOKEN not configured - skipping auto-approval"
           elif ! gh pr review "${{ steps.create_pr.outputs.PR_NUMBER }}" \
             --repo "${{ github.repository }}" \
             --approve \
-            --body "Automated approval by LexCode for version bump to ${{ steps.new_version.outputs.version }}"; then
+            --body "Automated approval for version bump to ${{ steps.new_version.outputs.version }}"; then
             echo "::warning::Failed to auto-approve PR"
           fi
 

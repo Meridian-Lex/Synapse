@@ -38,7 +38,7 @@ jobs:
         run: |
           TAG_NAME="v${{ steps.get_version.outputs.version }}"
 
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+          if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
             echo "Tag $TAG_NAME already exists, skipping"
             echo "created=false" >> $GITHUB_OUTPUT
             exit 0
