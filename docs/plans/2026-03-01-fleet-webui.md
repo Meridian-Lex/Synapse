@@ -1390,47 +1390,53 @@ PSQL="docker exec -i stratavore-postgres psql -U postgres -d synapse -v ON_ERROR
 
 echo "[bootstrap-fleet] Fleet='${FLEET_NAME}' Agent='${AGENT_NAME}' Channel='${DEFAULT_CHANNEL}'"
 
-$PSQL <<SQL
-DO \$\$
+$PSQL \
+  -v "fleet_name=${FLEET_NAME}" \
+  -v "agent_name=${AGENT_NAME}" \
+  -v "agent_secret=${AGENT_SECRET}" \
+  -v "channel_name=${DEFAULT_CHANNEL}" \
+  <<'SQL'
+DO $$
 DECLARE
   v_agent_id   BIGINT;
   v_fleet_id   BIGINT;
   v_channel_id BIGINT;
 BEGIN
-  -- Upsert human agent
+  -- Upsert human agent (:'var' uses psql quoting — safe against injection)
   INSERT INTO agents (name, secret_hash, is_human)
-  VALUES ('${AGENT_NAME}', '${AGENT_SECRET}', true)
+  VALUES (:'agent_name', :'agent_secret', true)
   ON CONFLICT (name)
   DO UPDATE SET secret_hash = EXCLUDED.secret_hash, is_human = true
   RETURNING id INTO v_agent_id;
 
-  -- Upsert fleet
+  -- Idempotent fleet: insert or find existing (do not overwrite owner on conflict)
   INSERT INTO fleets (name, owner_id)
-  VALUES ('${FLEET_NAME}', v_agent_id)
-  ON CONFLICT (name)
-  DO UPDATE SET owner_id = EXCLUDED.owner_id
+  VALUES (:'fleet_name', v_agent_id)
+  ON CONFLICT (name) DO NOTHING
   RETURNING id INTO v_fleet_id;
+  IF v_fleet_id IS NULL THEN
+    SELECT id INTO v_fleet_id FROM fleets WHERE name = :'fleet_name';
+  END IF;
 
   -- Assign agent to fleet
   UPDATE agents SET fleet_id = v_fleet_id WHERE id = v_agent_id;
 
-  -- Upsert default channel
-  INSERT INTO channels (name, fleet_id, created_by)
-  VALUES ('${DEFAULT_CHANNEL}', v_fleet_id, v_agent_id)
-  ON CONFLICT (name)
-  DO UPDATE SET fleet_id = EXCLUDED.fleet_id
-  RETURNING id INTO v_channel_id;
-
-  UPDATE channels SET fleet_id = v_fleet_id WHERE id = v_channel_id;
+  -- Idempotent channel: select existing fleet channel or insert new one
+  SELECT id INTO v_channel_id FROM channels
+    WHERE name = :'channel_name' AND fleet_id = v_fleet_id;
+  IF v_channel_id IS NULL THEN
+    INSERT INTO channels (name, fleet_id, created_by)
+    VALUES (:'channel_name', v_fleet_id, v_agent_id)
+    RETURNING id INTO v_channel_id;
+  END IF;
 
   -- Set default channel on agent
   UPDATE agents SET default_channel_id = v_channel_id WHERE id = v_agent_id;
 
-  RAISE NOTICE 'Done: fleet=% (%) agent=% (%) channel=% (%)',
-    '${FLEET_NAME}', v_fleet_id, '${AGENT_NAME}', v_agent_id,
-    '${DEFAULT_CHANNEL}', v_channel_id;
+  RAISE NOTICE 'Done: fleet_id=% agent_id=% channel_id=%',
+    v_fleet_id, v_agent_id, v_channel_id;
 END;
-\$\$;
+$$;
 SQL
 
 echo "[bootstrap-fleet] Complete."
