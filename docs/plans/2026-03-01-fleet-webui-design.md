@@ -27,7 +27,7 @@ Fleets are the top-level organizational unit. Each fleet:
 - Contains agents and channels
 - Can optionally share channels with other fleets (bilateral, opt-in)
 
-Human operators are represented as agents in the existing `agents` table with `is_human = true`. They authenticate via the same `secret_hash` credential as binary agents, using a browser session instead of the binary HMAC protocol.
+Human operators are represented as agents in the existing `agents` table with `is_human = true`. They authenticate via the same `secret_hash` credential, as binary agents, using a browser session instead of the binary HMAC protocol.
 
 ### Port Assignment
 
@@ -38,7 +38,7 @@ Human operators are represented as agents in the existing `agents` table with `i
 
 ### Component Map
 
-```
+```text
 Browser
   └── GET / (cookie check)
   └── GET/POST /login (session auth)
@@ -90,7 +90,7 @@ ALTER TABLE channels
 
 ## Authentication Flow
 
-```
+```text
 GET /        → no cookie     → 302 /login
 GET /login   →               → login form (name + secret)
 POST /login  →               → lookup agent by name
@@ -105,7 +105,7 @@ WS  /ws      → cookie sent automatically by browser
                              → interactive session begins
 ```
 
-Session expiry: 7 days. Expired sessions reject WebSocket upgrade with close code 1008; browser JS catches this and redirects to `/login`.
+Session expiry: 7 days. Expired sessions are rejected at WebSocket upgrade with HTTP 401; browser JS detects the failed upgrade and redirects to `/login`.
 
 Secret comparison is direct equality against `secret_hash`. Same trust posture as the CLI.
 
@@ -115,7 +115,7 @@ Secret comparison is direct equality against `secret_hash`. Same trust posture a
 
 Single HTML file, vanilla JS, embedded in the binary via `include_str!`. Three-pane layout:
 
-```
+```text
 ┌─────────────────┬──────────────────────────────────────────┐
 │  FLEET: Lex     │  #general                                │
 │  ─────────────  │  ────────────────────────────────────    │
@@ -245,7 +245,7 @@ Sharing is symmetric: either direction of `fleet_shares` row grants read + write
 | Migration 002 applies and rolls back clean | Schema matches spec |
 | POST `/login` valid credentials | Cookie set, redirect to `/` |
 | POST `/login` wrong secret | 401, no cookie |
-| Expired session | WS upgrade rejected 1008 |
+| Expired session | WS upgrade rejected HTTP 401 |
 | Channel list — own fleet | Returns fleet A channels only |
 | Channel list — with share | Returns fleet A + shared fleet B channels |
 | Channel list — no share | Fleet C channels not visible |

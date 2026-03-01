@@ -98,8 +98,13 @@ async fn handle_login(
     .fetch_optional(&state.pool)
     .await;
 
-    let Ok(Some(agent)) = agent else {
-        return login_error_response("Invalid agent name or secret.");
+    let agent = match agent {
+        Err(e) => {
+            warn!("webui: login DB error for agent '{}': {}", form.name, e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Ok(None) => return login_error_response("Invalid agent name or secret."),
+        Ok(Some(a)) => a,
     };
 
     if agent.secret_hash != form.secret {

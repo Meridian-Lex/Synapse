@@ -161,7 +161,11 @@ pub async fn frame_to_json(
         return None;
     }
 
-    let raw_payload = &frame[HEADER_LEN..];
+    let payload_end = HEADER_LEN + hdr.payload_len as usize;
+    if frame.len() < payload_end {
+        return None;
+    }
+    let raw_payload = &frame[HEADER_LEN..payload_end];
     let payload: Vec<u8> = if hdr.encoding == Encoding::Zstd {
         decompress(raw_payload).ok()?
     } else {
