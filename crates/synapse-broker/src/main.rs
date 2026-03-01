@@ -63,8 +63,9 @@ async fn main() -> anyhow::Result<()> {
             }
         };
         tracing::info!("Connection from {}", peer);
-        let (acceptor, pool, redis, router, ttl) =
-            (acceptor.clone(), pool.clone(), redis.clone(), router.clone(), cfg.broker.session_ttl_seconds);
+        let (acceptor, pool, redis, router, ttl, max_frame) =
+            (acceptor.clone(), pool.clone(), redis.clone(), router.clone(),
+             cfg.broker.session_ttl_seconds, cfg.broker.max_frame_bytes);
 
         let permit = match conn_limit.clone().acquire_owned().await {
             Ok(p) => p,
@@ -75,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
             match acceptor.accept(tcp).await {
                 Ok(mut tls) => match connection::handshake(&mut tls, &pool, &redis, ttl).await {
                     Ok(agent) => {
-                        if let Err(e) = msg_loop::run(&mut tls, &agent, &pool, &redis, &router).await {
+                        if let Err(e) = msg_loop::run(&mut tls, &agent, &pool, &redis, &router, max_frame).await {
                             tracing::warn!("Session error for {}: {}", agent.agent_name, e);
                         }
                     }

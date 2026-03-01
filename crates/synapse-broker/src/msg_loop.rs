@@ -21,10 +21,11 @@ pub async fn run<S>(
     pool: &PgPool,
     redis: &Arc<Mutex<MultiplexedConnection>>,
     router: &Router,
+    max_frame_bytes: u32,
 ) -> Result<()>
 where S: AsyncRead + AsyncWrite + Unpin,
 {
-    let result = run_inner(stream, agent, pool, redis, router).await;
+    let result = run_inner(stream, agent, pool, redis, router, max_frame_bytes).await;
 
     // Presence cleanup always runs, even on error exit.
     let mut r = redis.lock().await;
@@ -39,6 +40,7 @@ async fn run_inner<S>(
     pool: &PgPool,
     redis: &Arc<Mutex<MultiplexedConnection>>,
     router: &Router,
+    max_frame_bytes: u32,
 ) -> Result<()>
 where S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -53,6 +55,10 @@ where S: AsyncRead + AsyncWrite + Unpin,
             // Incoming frame from the connected agent.
             result = read_frame(stream) => {
                 let (hdr, payload) = result?;
+                // Enforce broker-level max frame size (may be lower than protocol MAX_PAYLOAD).
+                if hdr.payload_len > max_frame_bytes {
+                    anyhow::bail!("frame size {} exceeds broker max_frame_bytes {}", hdr.payload_len, max_frame_bytes);
+                }
                 match hdr.msg_type {
                     MsgType::Ping => {
                         write_frame(stream, &FrameHeader::new(MsgType::Pong, hdr.message_id, 0), &[]).await?;
