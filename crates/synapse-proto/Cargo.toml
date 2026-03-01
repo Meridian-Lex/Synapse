@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tokio     = { workspace = true }
 zstd      = { workspace = true }
 rmpv      = { workspace = true }
 hmac      = { workspace = true }
@@ -11,6 +12,3 @@ sha2      = { workspace = true }
 rand      = { workspace = true }
 thiserror = { workspace = true }
 bytes     = "1"
-
-[dev-dependencies]
-tokio = { workspace = true }
