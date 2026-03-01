@@ -171,7 +171,15 @@ jobs:
         id: create_pr
         env:
           GH_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
+          GITHUB_FALLBACK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::LEXCODE_TOKEN not configured; falling back to GITHUB_TOKEN"
+            GH_TOKEN="$GITHUB_FALLBACK_TOKEN"
+          fi
+          [ -z "$GH_TOKEN" ] && (echo "::error::No token available for PR creation" && exit 1)
+          export GH_TOKEN
+
           NEW_VER="${{ steps.new_version.outputs.version }}"
           OLD_VER="${{ steps.current_version.outputs.version }}"
           PR_NUM="${{ github.event.pull_request.number }}"
