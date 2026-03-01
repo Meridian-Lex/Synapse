@@ -297,7 +297,7 @@ rustup target add x86_64-pc-windows-gnu  # for Windows cross-compile
 
 ## WebUI
 
-When `webui.enabled: true`, the broker serves an interactive fleet chat interface at `http://<host>:7778`.
+When `webui.enabled: true`, the broker serves an interactive fleet chat interface on port 7778. In production, TLS should terminate at a reverse proxy (e.g. nginx) which proxies to this port — this is the standard deployment path and enables secure session-cookie behaviour. Direct HTTP access is supported for isolated internal networks where the proxy layer handles encryption.
 
 The WebUI provides:
 
