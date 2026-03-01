@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_proto::{
     codec::{read_frame, write_frame},
-    compression::{compress, should_compress},
+    compression::{compress, decompress, should_compress},
     frame::{Encoding, FrameHeader, MsgType},
     message::MsgPayload,
 };
@@ -96,15 +96,24 @@ where S: AsyncRead + AsyncWrite + Unpin,
                         }
                     }
                     MsgType::Msg => {
-                        let msg = MsgPayload::decode(&payload)?;
+                        // Decompress before decoding — sender may have compressed large payloads.
+                        let decoded = if hdr.encoding == Encoding::Zstd {
+                            decompress(&payload)?
+                        } else {
+                            payload.clone()
+                        };
+                        let msg = MsgPayload::decode(&decoded)?;
                         let (channel_id, content_type) = match &msg {
                             MsgPayload::Dialogue { channel_id, .. } => (*channel_id as i64, 1i16),
                             MsgPayload::Work     { channel_id, .. } => (*channel_id as i64, 2i16),
                         };
                         // Minor fix: safe u64 -> i64 cast instead of bare `as i64`.
                         let msg_id: i64 = hdr.message_id.try_into().unwrap_or(i64::MAX);
-                        let (body, compressed, enc) = if should_compress(&payload) {
-                            (compress(&payload)?, true, Encoding::Zstd)
+                        // If already compressed by sender, store as-is; otherwise compress if large.
+                        let (body, compressed, enc) = if hdr.flags.compressed {
+                            (payload.clone(), true, Encoding::Zstd)
+                        } else if should_compress(&decoded) {
+                            (compress(&decoded)?, true, Encoding::Zstd)
                         } else {
                             (payload.clone(), false, Encoding::Raw)
                         };
