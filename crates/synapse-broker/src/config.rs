@@ -38,13 +38,13 @@ pub fn load(path: &str) -> anyhow::Result<BrokerConfig> {
         .try_deserialize()?;
 
     if cfg.broker.session_ttl_seconds == 0 {
-        return Err(anyhow::anyhow!("broker.session_ttl_seconds must be > 0"));
+        anyhow::bail!("broker.session_ttl_seconds must be > 0");
     }
     if cfg.broker.max_frame_bytes == 0 {
-        return Err(anyhow::anyhow!("broker.max_frame_bytes must be > 0"));
+        anyhow::bail!("broker.max_frame_bytes must be > 0");
     }
     if cfg.rate_limit.messages_per_minute == 0 {
-        return Err(anyhow::anyhow!("rate_limit.messages_per_minute must be > 0"));
+        anyhow::bail!("rate_limit.messages_per_minute must be > 0");
     }
 
     if !std::path::Path::new(&cfg.broker.tls_cert).exists() {

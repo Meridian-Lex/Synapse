@@ -24,6 +24,11 @@ pub async fn cache_session(c: &mut MultiplexedConnection, token: &str, id: i64, 
     Ok(())
 }
 
+pub async fn del_session(c: &mut MultiplexedConnection, token: &str) -> Result<()> {
+    c.del::<_, ()>(format!("synapse:session:{}", token)).await?;
+    Ok(())
+}
+
 pub async fn publish_message(c: &mut MultiplexedConnection, channel_id: i64, frame: &[u8]) -> Result<()> {
     c.publish::<_, _, ()>(format!("synapse:channel:{}", channel_id), frame).await?;
     Ok(())

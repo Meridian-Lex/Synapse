@@ -61,12 +61,17 @@ where S: AsyncRead + AsyncWrite + Unpin,
     let agent_id = db::get_agent_id(pool, &hello.agent_name).await?
         .ok_or_else(|| anyhow::anyhow!("agent id missing"))?;
 
+    // Guard against u64 → i64 overflow in session TTL conversion
+    let session_ttl_i64 = i64::try_from(session_ttl)
+        .map_err(|_| anyhow::anyhow!("session_ttl_seconds {} exceeds i64::MAX", session_ttl))?;
+
     // Persist session to DB; then attempt cache operations with compensating
     // cleanup on failure so a DB session is never left without a cache entry.
-    db::create_session(pool, &token, agent_id, session_ttl as i64).await?;
+    db::create_session(pool, &token, agent_id, session_ttl_i64).await?;
     db::touch_agent(pool, agent_id).await?;
-    // Scope the Redis lock so it is released before any compensating DB call.
-    let cache_result = {
+
+    // Scope the Redis lock so it is released before any compensating DB calls.
+    let (cache_err, session_cached) = {
         let mut r = redis.lock().await;
         let session_result = cache::cache_session(&mut r, &token, agent_id, session_ttl).await;
         let presence_result = if session_result.is_ok() {
@@ -74,11 +79,17 @@ where S: AsyncRead + AsyncWrite + Unpin,
         } else {
             Ok(())
         };
-        session_result.and(presence_result).err()
+        let session_cached = session_result.is_ok();
+        (session_result.and(presence_result).err(), session_cached)
     };
-    if let Some(e) = cache_result {
-        // Compensate: remove dangling DB session (Redis lock already released)
+    if let Some(e) = cache_err {
+        // Compensate: remove dangling DB session
         let _ = db::delete_session(pool, &token).await;
+        // If session was cached before presence write failed, also evict the Redis session
+        if session_cached {
+            let mut r = redis.lock().await;
+            let _ = cache::del_session(&mut r, &token).await;
+        }
         return Err(e);
     }
 
@@ -88,7 +99,15 @@ where S: AsyncRead + AsyncWrite + Unpin,
     ack.extend_from_slice(&(tok_bytes.len() as u16).to_be_bytes());
     ack.extend_from_slice(tok_bytes);
     ack.extend_from_slice(&agent_id.to_be_bytes());
-    write_frame(stream, &FrameHeader::new(MsgType::HelloAck, rand::random(), ack.len() as u32), &ack).await?;
+    if let Err(e) = write_frame(stream, &FrameHeader::new(MsgType::HelloAck, rand::random(), ack.len() as u32), &ack).await {
+        // HELLO_ACK failed to send — clean up both DB and Redis session to avoid orphaned auth state
+        let _ = db::delete_session(pool, &token).await;
+        {
+            let mut r = redis.lock().await;
+            let _ = cache::del_session(&mut r, &token).await;
+        }
+        return Err(e.into());
+    }
 
     tracing::info!("Auth OK: {} (id={})", hello.agent_name, agent_id);
     Ok(AuthenticatedAgent { agent_id, agent_name: hello.agent_name, session_token: token })

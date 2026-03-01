@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
     env:
       PR_TITLE: ${{ github.event.pull_request.title }}
       PR_BODY: ${{ github.event.pull_request.body }}
@@ -77,9 +78,9 @@ jobs:
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
 
           case "$BUMP_TYPE" in
-            major) NEW_MAJOR=$((MAJOR + 1)); NEW_MINOR=0; NEW_PATCH=0 ;;
-            minor) NEW_MAJOR=$MAJOR; NEW_MINOR=$((MINOR + 1)); NEW_PATCH=0 ;;
-            patch) NEW_MAJOR=$MAJOR; NEW_MINOR=$MINOR; NEW_PATCH=$((PATCH + 1)) ;;
+            major) NEW_MAJOR=$((10#$MAJOR + 1)); NEW_MINOR=0; NEW_PATCH=0 ;;
+            minor) NEW_MAJOR=$((10#$MAJOR)); NEW_MINOR=$((10#$MINOR + 1)); NEW_PATCH=0 ;;
+            patch) NEW_MAJOR=$((10#$MAJOR)); NEW_MINOR=$((10#$MINOR)); NEW_PATCH=$((10#$PATCH + 1)) ;;
           esac
 
           NEW_VERSION="${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
