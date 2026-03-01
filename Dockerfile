@@ -1,8 +1,20 @@
-# Multi-stage build: compile with musl for static binary, deploy from scratch
-# Stage 1: build (requires musl-tools: apt install musl-tools)
-# cargo build --release -p synapse-broker --target x86_64-unknown-linux-musl
-FROM scratch
-COPY target/x86_64-unknown-linux-musl/release/synapse-broker /synapse-broker
-COPY webui/ /webui/
+# Stage 1: build
+FROM rust:1.88-slim AS builder
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY . .
+RUN cargo build --release -p synapse-broker
+
+# Stage 2: runtime
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y ca-certificates libssl3 postgresql-client gettext-base \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=builder /build/target/release/synapse-broker /usr/local/bin/synapse-broker
+COPY --from=builder /build/webui/ /app/webui/
+COPY migrations/ /app/migrations/
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 EXPOSE 7777 7778
-ENTRYPOINT ["/synapse-broker"]
+ENTRYPOINT ["/app/entrypoint.sh"]
