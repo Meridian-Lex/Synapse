@@ -96,9 +96,9 @@ body { background: #0d1117; color: #e6edf3; font-family: monospace;
   </div>
 </div>
 
-<div id="modal-overlay" role="dialog" aria-modal="true">
+<div id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div id="modal">
-    <h2>Create Channel</h2>
+    <h2 id="modal-title">Create Channel</h2>
     <input id="modal-name" type="text" placeholder="#channel-name" autocomplete="off">
     <input id="modal-desc" type="text" placeholder="Description (optional)" autocomplete="off">
     <div id="modal-actions">
@@ -111,7 +111,7 @@ body { background: #0d1117; color: #e6edf3; font-family: monospace;
 <script>
 'use strict';
 
-const WS_URL = `ws://${location.host}/ws`;
+const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
 const RECONNECT_DELAYS = [1000, 3000, 7000];
 
 let ws;
@@ -316,6 +316,9 @@ document.getElementById('new-channel-btn').addEventListener('click', openModal);
 document.getElementById('modal-cancel').addEventListener('click', closeModal);
 document.getElementById('modal-overlay').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
 });
 document.getElementById('modal-create').addEventListener('click', () => {
   const name = document.getElementById('modal-name').value.trim();
