@@ -1,86 +1,369 @@
 use crate::router::Router;
 use axum::{
-    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
-    response::IntoResponse,
-    routing::get,
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Form, State,
+    },
+    http::{header, HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Redirect, Response},
+    routing::{get, post},
     Router as AxumRouter,
 };
+use chrono::Utc;
+use rand::Rng;
+use serde::Deserialize;
+use sqlx::PgPool;
 use std::sync::Arc;
-use synapse_proto::frame::{Encoding, FrameHeader, HEADER_LEN};
-use synapse_proto::compression::decompress;
 use tracing::warn;
 
-pub fn build_router(router: Arc<Router>) -> AxumRouter {
+#[derive(Clone)]
+pub struct WebUiState {
+    pub broker_router: Arc<Router>,
+    pub pool: PgPool,
+}
+
+pub fn build_router(broker_router: Arc<Router>, pool: PgPool) -> AxumRouter {
+    let state = WebUiState { broker_router, pool };
     AxumRouter::new()
-        .route("/ws", get(ws_handler))
-        .route("/",   get(serve_index))
-        .with_state(router)
+        .route("/",      get(serve_index))
+        .route("/login", get(serve_login).post(handle_login))
+        .route("/ws",    get(ws_handler))
+        .with_state(state)
 }
 
-async fn serve_index() -> impl IntoResponse {
-    axum::response::Html(include_str!("../../../webui/index.html"))
+// --- Session helpers ---
+
+fn extract_session_token(headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get(header::COOKIE)?.to_str().ok()?;
+    cookie_header
+        .split(';')
+        .map(|s| s.trim())
+        .find(|s| s.starts_with("session="))
+        .map(|s| s["session=".len()..].to_string())
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(router): State<Arc<Router>>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_ws(socket, router))
+async fn validate_session(pool: &PgPool, token: &str) -> Option<i64> {
+    let row = sqlx::query!(
+        "SELECT agent_id FROM sessions WHERE token = $1 AND expires_at > now()",
+        token
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+    row.agent_id
 }
 
-async fn handle_ws(mut socket: WebSocket, router: Arc<Router>) {
-    // Subscribe to #general (channel id 1, seeded in migration)
-    let mut rx = router.subscribe(1).await;
-    tracing::debug!("webui: observer connected, subscribed to channel 1");
+// --- GET / ---
+
+async fn serve_index(State(state): State<WebUiState>, headers: HeaderMap) -> Response {
+    let token = match extract_session_token(&headers) {
+        Some(t) => t,
+        None => return Redirect::to("/login").into_response(),
+    };
+    if validate_session(&state.pool, &token).await.is_none() {
+        return Redirect::to("/login").into_response();
+    }
+    Html(include_str!("../../../webui/index.html")).into_response()
+}
+
+// --- GET /login ---
+
+async fn serve_login() -> impl IntoResponse {
+    Html(include_str!("../../../webui/login.html").replace("{{ERROR}}", ""))
+}
+
+fn login_error_response(msg: &str) -> Response {
+    let safe_msg = msg.replace('<', "&lt;").replace('>', "&gt;");
+    let body = include_str!("../../../webui/login.html")
+        .replace("{{ERROR}}", &format!(r#"<p class="error">{safe_msg}</p>"#));
+    (StatusCode::UNAUTHORIZED, Html(body)).into_response()
+}
+
+// --- POST /login ---
+
+#[derive(Deserialize)]
+struct LoginForm {
+    name:   String,
+    secret: String,
+}
+
+async fn handle_login(
+    State(state): State<WebUiState>,
+    Form(form): Form<LoginForm>,
+) -> Response {
+    let agent = sqlx::query!(
+        "SELECT id, secret_hash FROM agents WHERE name = $1 AND is_human = true",
+        form.name
+    )
+    .fetch_optional(&state.pool)
+    .await;
+
+    let Ok(Some(agent)) = agent else {
+        return login_error_response("Invalid agent name or secret.");
+    };
+
+    if agent.secret_hash != form.secret {
+        return login_error_response("Invalid agent name or secret.");
+    }
+
+    let token: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect();
+
+    let expires_at = Utc::now() + chrono::Duration::days(7);
+
+    let insert = sqlx::query!(
+        "INSERT INTO sessions (token, agent_id, expires_at) VALUES ($1, $2, $3)",
+        token,
+        agent.id,
+        expires_at
+    )
+    .execute(&state.pool)
+    .await;
+
+    if insert.is_err() {
+        return login_error_response("Internal error. Please try again.");
+    }
+
+    let cookie = format!(
+        "session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800"
+    );
+    (
+        StatusCode::SEE_OTHER,
+        [(header::LOCATION, "/"), (header::SET_COOKIE, cookie.as_str())],
+        "",
+    )
+        .into_response()
+}
+
+// --- WebSocket ---
+
+async fn ws_handler(
+    State(state): State<WebUiState>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let token = match extract_session_token(&headers) {
+        Some(t) => t,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+    let agent_id = match validate_session(&state.pool, &token).await {
+        Some(id) => id,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+    let ctx = match crate::webui_handlers::load_agent_context(&state.pool, agent_id).await {
+        Some(c) => c,
+        None => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    ws.on_upgrade(move |socket| handle_ws_connection(socket, state, ctx))
+}
+
+async fn handle_ws_connection(
+    mut socket: WebSocket,
+    state:      WebUiState,
+    ctx:        crate::webui_handlers::AgentContext,
+) {
+    let channels = match ctx.fleet_id {
+        Some(fid) => crate::webui_handlers::fetch_channel_list(&state.pool, fid).await,
+        None => vec![],
+    };
+
+    let default_channel = channels
+        .iter()
+        .find(|c| Some(c.id) == ctx.default_channel_id)
+        .map(|c| c.name.clone());
+
+    let init = serde_json::json!({
+        "type": "init",
+        "agent": {
+            "id":    ctx.agent_id,
+            "name":  ctx.agent_name,
+            "fleet": ctx.fleet_name.as_deref().unwrap_or(""),
+        },
+        "channels":        channels,
+        "default_channel": default_channel,
+    });
+
+    if socket.send(Message::Text(init.to_string())).await.is_err() {
+        return;
+    }
+
+    let mut rx: Option<tokio::sync::broadcast::Receiver<Vec<u8>>> = None;
+    let mut active_channel_id: Option<i64> = None;
+
     loop {
-        tokio::select! {
-            result = rx.recv() => {
-            let frame = match result {
-                Ok(f) => f,
-                Err(e) => {
-                    tracing::debug!("webui: subscription channel closed or lagged: {}", e);
-                    break;
-                }
-            };
-                if frame.len() < HEADER_LEN {
-                    continue;
-                }
-
-                // Parse the frame header using the proper API
-                let header_bytes: &[u8; HEADER_LEN] = match frame[..HEADER_LEN].try_into() {
-                    Ok(b) => b,
-                    Err(_) => continue,
-                };
-                let hdr = match FrameHeader::from_bytes(header_bytes) {
-                    Ok(h) => h,
-                    Err(_) => continue,
-                };
-
-                let raw_payload = &frame[HEADER_LEN..];
-
-                // Decompress if needed
-                let payload: Vec<u8> = if hdr.encoding == Encoding::Zstd {
-                    match decompress(raw_payload) {
-                        Ok(p) => p,
+        if let Some(ref mut receiver) = rx {
+            tokio::select! {
+                result = receiver.recv() => {
+                    match result {
+                        Ok(frame) => {
+                            if let Some(json) = crate::webui_handlers::frame_to_json(
+                                &frame, active_channel_id, &channels, &ctx.agent_name,
+                            ) {
+                                if socket.send(Message::Text(json)).await.is_err() { break; }
+                            }
+                        }
                         Err(e) => {
-                            warn!("webui: failed to decompress frame {}: {}", hdr.message_id, e);
-                            continue;
+                            warn!("webui: broadcast lag: {}", e);
+                            break;
                         }
                     }
-                } else {
-                    raw_payload.to_vec()
-                };
-
-                // content_type 0x01 = DIALOGUE; body starts at payload[17..]
-                // payload[0] = content_type, payload[1..17] = 16-byte sender UUID
-                if payload.len() > 17 && payload[0] == 0x01 {
-                    if let Ok(text) = std::str::from_utf8(&payload[17..]) {
-                        let json = serde_json::json!({ "type": "message", "body": text }).to_string();
-                        if socket.send(Message::Text(json)).await.is_err() { break; }
+                }
+                msg = socket.recv() => {
+                    match msg {
+                        Some(Ok(m)) => {
+                            if dispatch_command(m, &mut socket, &state, &ctx, &channels,
+                                               &mut rx, &mut active_channel_id).await.is_err() {
+                                break;
+                            }
+                        }
+                        _ => break,
                     }
                 }
             }
-            Some(Ok(_msg)) = socket.recv() => {
-                // Human observer input reserved for future task
+        } else {
+            match socket.recv().await {
+                Some(Ok(m)) => {
+                    if dispatch_command(m, &mut socket, &state, &ctx, &channels,
+                                       &mut rx, &mut active_channel_id).await.is_err() {
+                        break;
+                    }
+                }
+                _ => break,
             }
-            else => break,
         }
     }
+}
+
+// --- Command dispatch ---
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum WsCommand {
+    Subscribe { channel: String },
+    Send      { channel: String, body: String },
+    CreateChannel { name: String, description: Option<String> },
+}
+
+async fn dispatch_command(
+    msg:               Message,
+    socket:            &mut WebSocket,
+    state:             &WebUiState,
+    ctx:               &crate::webui_handlers::AgentContext,
+    channels:          &[crate::webui_handlers::ChannelInfo],
+    rx:                &mut Option<tokio::sync::broadcast::Receiver<Vec<u8>>>,
+    active_channel_id: &mut Option<i64>,
+) -> Result<(), ()> {
+    let text = match msg {
+        Message::Text(t) => t,
+        Message::Close(_) => return Err(()),
+        _ => return Ok(()),
+    };
+
+    let cmd: WsCommand = match serde_json::from_str(&text) {
+        Ok(c) => c,
+        Err(_) => {
+            let err = serde_json::json!({"type":"error","code":"BAD_REQUEST",
+                "message":"Invalid JSON command"});
+            let _ = socket.send(Message::Text(err.to_string())).await;
+            return Ok(());
+        }
+    };
+
+    match cmd {
+        WsCommand::Subscribe { channel } => {
+            handle_subscribe(channel, socket, state, channels, rx, active_channel_id).await
+        }
+        WsCommand::Send { channel, body } => {
+            handle_send(channel, body, socket, state, ctx, channels).await
+        }
+        WsCommand::CreateChannel { name, description } => {
+            handle_create_channel(name, description, socket, state, ctx).await
+        }
+    }
+}
+
+async fn handle_subscribe(
+    channel:           String,
+    socket:            &mut WebSocket,
+    state:             &WebUiState,
+    channels:          &[crate::webui_handlers::ChannelInfo],
+    rx:                &mut Option<tokio::sync::broadcast::Receiver<Vec<u8>>>,
+    active_channel_id: &mut Option<i64>,
+) -> Result<(), ()> {
+    let ch = match channels.iter().find(|c| c.name == channel) {
+        Some(c) => c,
+        None => {
+            let err = serde_json::json!({"type":"error","code":"NOT_FOUND",
+                "message": format!("Channel {channel} not found or not accessible")});
+            let _ = socket.send(Message::Text(err.to_string())).await;
+            return Ok(());
+        }
+    };
+    *rx = Some(state.broker_router.subscribe(ch.id).await);
+    *active_channel_id = Some(ch.id);
+    let history = crate::webui_handlers::fetch_history(&state.pool, ch.id, 50).await;
+    let hist = serde_json::json!({"type":"history","channel":channel,"messages":history});
+    let _ = socket.send(Message::Text(hist.to_string())).await;
+    Ok(())
+}
+
+async fn handle_send(
+    channel:  String,
+    body:     String,
+    socket:   &mut WebSocket,
+    state:    &WebUiState,
+    ctx:      &crate::webui_handlers::AgentContext,
+    channels: &[crate::webui_handlers::ChannelInfo],
+) -> Result<(), ()> {
+    let ch = match channels.iter().find(|c| c.name == channel) {
+        Some(c) => c,
+        None => {
+            let err = serde_json::json!({"type":"error","code":"NOT_FOUND",
+                "message": format!("Channel {channel} not found or not accessible")});
+            let _ = socket.send(Message::Text(err.to_string())).await;
+            return Ok(());
+        }
+    };
+    if let Err(e) = crate::webui_handlers::send_as_human(
+        &state.pool, &state.broker_router, ctx, ch.id, &body,
+    ).await {
+        warn!("webui: send_as_human error: {}", e);
+        let err = serde_json::json!({"type":"error","code":"INTERNAL","message":"Send failed"});
+        let _ = socket.send(Message::Text(err.to_string())).await;
+    }
+    Ok(())
+}
+
+async fn handle_create_channel(
+    name:        String,
+    description: Option<String>,
+    socket:      &mut WebSocket,
+    state:       &WebUiState,
+    ctx:         &crate::webui_handlers::AgentContext,
+) -> Result<(), ()> {
+    let Some(fleet_id) = ctx.fleet_id else {
+        let err = serde_json::json!({"type":"error","code":"FORBIDDEN",
+            "message":"No fleet assigned to your account"});
+        let _ = socket.send(Message::Text(err.to_string())).await;
+        return Ok(());
+    };
+    match crate::webui_handlers::create_channel(
+        &state.pool, &name, description.as_deref(), fleet_id, ctx.agent_id,
+    ).await {
+        Ok(ch) => {
+            let msg = serde_json::json!({"type":"channel_created",
+                "id":ch.id,"name":ch.name,"fleet":ch.fleet_name});
+            let _ = socket.send(Message::Text(msg.to_string())).await;
+        }
+        Err(e) => {
+            let code = if e.to_string().contains("unique") { "CONFLICT" } else { "INTERNAL" };
+            let err = serde_json::json!({"type":"error","code":code,
+                "message":format!("Could not create channel: {e}")});
+            let _ = socket.send(Message::Text(err.to_string())).await;
+        }
+    }
+    Ok(())
 }

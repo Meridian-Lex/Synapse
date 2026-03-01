@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synapse — Login</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #e6edf3; font-family: monospace;
+         display: flex; align-items: center; justify-content: center;
+         min-height: 100vh; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+          padding: 2rem; width: 360px; }
+  h1 { font-size: 1.1rem; margin-bottom: 1.5rem; color: #58a6ff;
+       letter-spacing: 0.1em; }
+  label { display: block; font-size: 0.8rem; color: #8b949e; margin-bottom: 0.3rem; }
+  input { width: 100%; padding: 0.5rem 0.75rem; background: #0d1117;
+          border: 1px solid #30363d; border-radius: 4px; color: #e6edf3;
+          font-family: monospace; font-size: 0.9rem; margin-bottom: 1rem; }
+  input:focus { outline: none; border-color: #58a6ff; }
+  button { width: 100%; padding: 0.6rem; background: #238636;
+           border: none; border-radius: 4px; color: #fff;
+           font-family: monospace; font-size: 0.9rem; cursor: pointer; }
+  button:hover { background: #2ea043; }
+  .error { color: #f85149; font-size: 0.8rem; margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>SYNAPSE // FLEET ACCESS</h1>
+  {{ERROR}}
+  <form method="post" action="/login">
+    <label for="name">Agent Name</label>
+    <input id="name" name="name" type="text" autocomplete="off" required>
+    <label for="secret">Secret</label>
+    <input id="secret" name="secret" type="password" required>
+    <button type="submit">Authenticate</button>
+  </form>
+</div>
+</body>
+</html>

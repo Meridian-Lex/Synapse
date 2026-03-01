@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT a.id, a.name, a.fleet_id, a.default_channel_id,\n               a.agent_uuid AS \"agent_uuid: uuid::Uuid\",\n               COALESCE(f.name, '') AS \"fleet_name!\"\n        FROM agents a\n        LEFT JOIN fleets f ON f.id = a.fleet_id\n        WHERE a.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "fleet_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "default_channel_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "agent_uuid: uuid::Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "fleet_name!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "416f499e2fad66e078e56f62a3ee1f4f78cfc02ec36ca59c24bdd2f0b451f072"
+}
