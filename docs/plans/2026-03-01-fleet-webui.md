@@ -1558,6 +1558,195 @@ EOF
 
 ---
 
+### Task 12: Ralph Loop — PR review cycle (CodeRabbit + Sourcery)
+
+**Reference**: `lex-internal/knowledge/review-resolution-workflow.md`
+
+This task runs after Task 11 (PR created). It is cyclic — repeat until `reviewDecision=APPROVED` and `mergeStateStatus=CLEAN`.
+
+---
+
+**Step 1: Trigger CodeRabbit review (Cycle 1)**
+
+Post a review request comment on the PR:
+
+```bash
+gh api --method POST \
+  repos/Meridian-Lex/Synapse/issues/<PR_NUMBER>/comments \
+  -f body='@coderabbitai review'
+```
+
+**Step 2: Cryopod — wait for review completion**
+
+```bash
+sleep 1800   # 30 minutes — CodeRabbit + Sourcery both need time to complete
+```
+
+Check for activity if needed:
+
+```bash
+gh api repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/reviews \
+  --jq '.[] | {user: .user.login, state: .state, submitted_at: .submitted_at}' \
+  | jq -s 'sort_by(.submitted_at) | reverse | .[0:5]'
+```
+
+**Step 3: Extract all review threads and AI agent prompts**
+
+```bash
+# Get all review thread IDs and resolution status
+gh api graphql -f query='
+{
+  repository(owner: "Meridian-Lex", name: "Synapse") {
+    pullRequest(number: <PR_NUMBER>) {
+      reviewThreads(first: 50) {
+        nodes {
+          id
+          isResolved
+          comments(first: 1) {
+            nodes { body path line }
+          }
+        }
+      }
+    }
+  }
+}'
+```
+
+```bash
+# Get latest coderabbitai reviews with full body (AI agent prompts live here)
+gh api repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/reviews \
+  --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id: .id, state: .state, body: .body, submitted_at: .submitted_at}' \
+  | jq -s 'sort_by(.submitted_at) | reverse | .[0:2]'
+```
+
+Look for:
+- `<details><summary>🤖 Prompt for all review comments with AI agents</summary>` blocks
+- Individual `🤖 Prompt for AI Agents` sections on inline comments
+
+**Step 4: Triage all open threads**
+
+For each unresolved thread, decide:
+- **Fix**: Code change required — apply the fix
+- **Acknowledge**: Not applicable to current code, or design decision — reply explaining why, still resolve the thread
+
+**ALWAYS verify against current code before applying a fix** — reviews may be stale if commits landed after the review was posted.
+
+**Step 5: Apply fixes and commit**
+
+For each fixable finding:
+
+```bash
+# After making the code change
+git add <changed files>
+git commit -m "fix: <description of finding resolved>"
+git push origin feat/fleet-webui
+```
+
+Group related fixes into a single commit where sensible. One commit per logical fix — not one per thread.
+
+**Step 6: Reply to all open review threads**
+
+Get inline comment IDs:
+
+```bash
+gh api repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/comments \
+  --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id: .id, path: .path, line: .line}'
+```
+
+Reply to each thread with resolution confirmation:
+
+```bash
+gh api --method POST \
+  repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
+  -f body='**RESOLVED** - [concise description of fix applied, or reason not applicable]'
+```
+
+Reply format:
+- Fixed: `**RESOLVED** - <file>:<line> <what was changed>.`
+- Not applicable: `**ACKNOWLEDGED** - <why this does not apply to current code>.`
+- Design decision: `**ACKNOWLEDGED** - <rationale for intentional design choice>.`
+
+**Step 7: Resolve all threads via GraphQL**
+
+For each thread ID retrieved in Step 3:
+
+```bash
+gh api graphql -f query='
+mutation {
+  resolveReviewThread(input: {threadId: "<THREAD_ID>"}) {
+    thread { isResolved }
+  }
+}'
+```
+
+Verify all threads resolved:
+
+```bash
+gh api graphql -f query='
+{
+  repository(owner: "Meridian-Lex", name: "Synapse") {
+    pullRequest(number: <PR_NUMBER>) {
+      reviewThreads(first: 50) {
+        nodes { id isResolved }
+      }
+    }
+  }
+}' | jq '.data.repository.pullRequest.reviewThreads.nodes | map(select(.isResolved == false)) | length'
+```
+
+Expected: `0`
+
+**Step 8: Check PR approval state**
+
+```bash
+gh pr view <PR_NUMBER> --repo Meridian-Lex/Synapse \
+  --json reviewDecision,mergeStateStatus,reviews \
+  | jq '{reviewDecision, mergeStateStatus}'
+```
+
+- `reviewDecision=APPROVED` + `mergeStateStatus=CLEAN` → proceed to Step 10
+- `reviewDecision=REVIEW_REQUIRED` or findings remain → trigger Cycle 2 (Step 9)
+
+**Step 9: Trigger Cycle 2+ (if needed)**
+
+```bash
+gh api --method POST \
+  repos/Meridian-Lex/Synapse/issues/<PR_NUMBER>/comments \
+  -f body='@coderabbitai review'
+
+sleep 1800  # reduced to 15 min for subsequent cycles if PR is quiet
+```
+
+Repeat Steps 3–8 until clean.
+
+**Step 10: Enable auto-merge and confirm**
+
+```bash
+gh pr merge <PR_NUMBER> \
+  --repo Meridian-Lex/Synapse \
+  --auto --merge
+
+# Confirm merge state
+gh pr view <PR_NUMBER> --repo Meridian-Lex/Synapse \
+  --json state,mergedAt,mergeStateStatus | jq .
+```
+
+If conditions already met (APPROVED + CLEAN), auto-merge triggers immediately. Confirm `state=MERGED`.
+
+**Step 11: Post-merge — update task queue**
+
+Update `lex-internal/state/TASK-QUEUE.md`:
+- Task 61: change `IN PROGRESS` → `COMPLETE`, add `Merged: <timestamp>`, `PR: <url>`
+
+```bash
+cd /home/meridian/meridian-home/lex-internal
+git add state/TASK-QUEUE.md
+git commit -m "chore: Task 61 complete — Synapse Fleet WebUI merged"
+git push origin master
+```
+
+---
+
 ## Implementation Notes
 
 **FrameHeader API**: Before implementing `send_as_human` (Task 8), read `crates/synapse-proto/src/frame.rs` to confirm the exact constructor signature and `to_bytes` method. Adapt the call accordingly.
