@@ -3,6 +3,9 @@ use serde::Serialize;
 use sqlx::PgPool;
 use synapse_proto::compression::decompress;
 use synapse_proto::frame::{Encoding, FrameHeader, MsgType, HEADER_LEN};
+
+/// Byte length of the Dialogue payload header: 1-byte content type + 16-byte sender UUID.
+const DIALOGUE_HEADER_LEN: usize = 17;
 use tracing::warn;
 
 #[derive(Clone)]
@@ -124,12 +127,12 @@ pub async fn fetch_history(pool: &PgPool, channel_id: i64, limit: i64) -> Vec<Me
 /// Decode the sender agent UUID from a Dialogue frame payload.
 /// Payload layout: [0x01 content_type][16-byte sender UUID][UTF-8 body]
 fn decode_dialogue_payload(payload: &[u8]) -> Option<(uuid::Uuid, &str)> {
-    if payload.len() <= 17 || payload[0] != 0x01 {
+    if payload.len() <= DIALOGUE_HEADER_LEN || payload[0] != 0x01 {
         return None;
     }
-    let uuid_bytes: [u8; 16] = payload[1..17].try_into().ok()?;
+    let uuid_bytes: [u8; 16] = payload[1..DIALOGUE_HEADER_LEN].try_into().ok()?;
     let sender_uuid = uuid::Uuid::from_bytes(uuid_bytes);
-    let body = std::str::from_utf8(&payload[17..]).ok()?;
+    let body = std::str::from_utf8(&payload[DIALOGUE_HEADER_LEN..]).ok()?;
     Some((sender_uuid, body))
 }
 

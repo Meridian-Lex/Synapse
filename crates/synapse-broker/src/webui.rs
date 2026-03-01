@@ -107,7 +107,10 @@ async fn handle_login(
         Ok(Some(a)) => a,
     };
 
-    if agent.secret_hash != form.secret {
+    // Constant-time byte comparison to prevent timing-oracle attacks.
+    // secret_hash stores fixed-width comparison tokens (internal API keys),
+    // not bcrypt/argon2 hashes — no KDF is needed for this trust boundary.
+    if !constant_time_eq(agent.secret_hash.as_bytes(), form.secret.as_bytes()) {
         return login_error_response("Invalid agent name or secret.");
     }
 
@@ -128,12 +131,13 @@ async fn handle_login(
     .execute(&state.pool)
     .await;
 
-    if insert.is_err() {
-        return login_error_response("Internal error. Please try again.");
+    if let Err(e) = insert {
+        warn!("webui: session insert failed for agent '{}': {}", form.name, e);
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
     let cookie = format!(
-        "session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800"
+        "session={token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800"
     );
     (
         StatusCode::SEE_OTHER,
@@ -265,6 +269,15 @@ async fn handle_ws_connection(
             }
         }
     }
+}
+
+/// Constant-time byte equality. Prevents timing-oracle attacks when comparing
+/// secrets: all bytes are always compared regardless of where the first
+/// difference occurs. Returns false immediately if lengths differ (length is
+/// not secret for our fixed-width internal tokens).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() { return false; }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Await a message from an optional broadcast receiver.
