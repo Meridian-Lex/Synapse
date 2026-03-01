@@ -196,53 +196,99 @@ async fn handle_ws_connection(
     }
 
     let mut rx: Option<tokio::sync::broadcast::Receiver<Vec<u8>>> = None;
+    let mut fleet_rx: Option<tokio::sync::broadcast::Receiver<()>> = match ctx.fleet_id {
+        Some(fid) => Some(state.broker_router.subscribe_fleet(fid).await),
+        None => None,
+    };
     let mut active_channel_id: Option<i64> = None;
 
     loop {
-        if let Some(ref mut receiver) = rx {
-            tokio::select! {
-                result = receiver.recv() => {
-                    match result {
-                        Ok(frame) => {
-                            if let Some(json) = crate::webui_handlers::frame_to_json(
-                                &frame, &state.pool, active_channel_id, &channels,
-                            ).await {
-                                if socket.send(Message::Text(json)).await.is_err() { break; }
-                            }
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            warn!("webui: broadcast lagged, dropped {} messages", n);
-                            // Receiver is still valid — continue without disconnecting
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            warn!("webui: broadcast channel closed");
-                            break;
+        tokio::select! {
+            result = channel_recv(&mut rx) => {
+                match result {
+                    Ok(frame) => {
+                        if let Some(json) = crate::webui_handlers::frame_to_json(
+                            &frame, &state.pool, active_channel_id, &channels,
+                        ).await {
+                            if socket.send(Message::Text(json)).await.is_err() { break; }
                         }
                     }
-                }
-                msg = socket.recv() => {
-                    match msg {
-                        Some(Ok(m)) => {
-                            if dispatch_command(m, &mut socket, &state, &ctx, &mut channels,
-                                               &mut rx, &mut active_channel_id).await.is_err() {
-                                break;
-                            }
-                        }
-                        _ => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("webui: broadcast lagged, dropped {} messages", n);
                     }
-                }
-            }
-        } else {
-            match socket.recv().await {
-                Some(Ok(m)) => {
-                    if dispatch_command(m, &mut socket, &state, &ctx, &mut channels,
-                                       &mut rx, &mut active_channel_id).await.is_err() {
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        warn!("webui: broadcast channel closed");
                         break;
                     }
                 }
-                _ => break,
+            }
+            event = fleet_recv(&mut fleet_rx) => {
+                match event {
+                    Ok(()) => {
+                        if let Some(fid) = ctx.fleet_id {
+                            channels = crate::webui_handlers::fetch_channel_list(&state.pool, fid).await;
+                            let upd = serde_json::json!({
+                                "type": "channel_list_updated",
+                                "channels": channels,
+                            });
+                            if socket.send(Message::Text(upd.to_string())).await.is_err() { break; }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("webui: fleet broadcast lagged, dropped {} events", n);
+                        // Refresh anyway — at least one event was missed
+                        if let Some(fid) = ctx.fleet_id {
+                            channels = crate::webui_handlers::fetch_channel_list(&state.pool, fid).await;
+                            let upd = serde_json::json!({
+                                "type": "channel_list_updated",
+                                "channels": channels,
+                            });
+                            if socket.send(Message::Text(upd.to_string())).await.is_err() { break; }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        // Fleet broadcast channel gone; disable future polling to avoid spin
+                        fleet_rx = None;
+                    }
+                }
+            }
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(m)) => {
+                        if dispatch_command(m, &mut socket, &state, &ctx, &mut channels,
+                                           &mut rx, &mut active_channel_id).await.is_err() {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
             }
         }
+    }
+}
+
+/// Await a message from an optional broadcast receiver.
+/// Yields std::future::pending when the receiver is None, allowing select! to
+/// keep the branch live without ever firing it.
+async fn channel_recv(
+    rx: &mut Option<tokio::sync::broadcast::Receiver<Vec<u8>>>,
+) -> Result<Vec<u8>, tokio::sync::broadcast::error::RecvError> {
+    match rx {
+        Some(r) => r.recv().await,
+        None    => std::future::pending::<Result<Vec<u8>, tokio::sync::broadcast::error::RecvError>>().await,
+    }
+}
+
+/// Like channel_recv but for fleet-level unit signals.
+/// Returns Result so the caller can distinguish Closed (disable polling)
+/// from Lagged (missed events but still alive) rather than silently
+/// converting both to None and risking a tight select! spin.
+async fn fleet_recv(
+    rx: &mut Option<tokio::sync::broadcast::Receiver<()>>,
+) -> Result<(), tokio::sync::broadcast::error::RecvError> {
+    match rx {
+        Some(r) => r.recv().await,
+        None    => std::future::pending::<Result<(), tokio::sync::broadcast::error::RecvError>>().await,
     }
 }
 
@@ -370,6 +416,8 @@ async fn handle_create_channel(
             let msg = serde_json::json!({"type":"channel_created",
                 "id":ch.id,"name":ch.name,"fleet":ch.fleet_name});
             let _ = socket.send(Message::Text(msg.to_string())).await;
+            // Signal all fleet sessions that the channel list has changed
+            state.broker_router.notify_fleet(fleet_id).await;
             // Update session channel list so subscribe/send work immediately
             channels.push(ch);
         }
