@@ -73,7 +73,7 @@ async fn serve_login() -> impl IntoResponse {
 }
 
 fn login_error_response(msg: &str) -> Response {
-    let safe_msg = msg.replace('<', "&lt;").replace('>', "&gt;");
+    let safe_msg = msg.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
     let body = include_str!("../../../webui/login.html")
         .replace("{{ERROR}}", &format!(r#"<p class="error">{safe_msg}</p>"#));
     (StatusCode::UNAUTHORIZED, Html(body)).into_response()
