@@ -374,7 +374,13 @@ async fn handle_create_channel(
             channels.push(ch);
         }
         Err(e) => {
-            let is_conflict = e.to_string().contains("unique");
+            let is_conflict = matches!(&e,
+                anyhow::Error { .. } if e.downcast_ref::<sqlx::Error>()
+                    .and_then(|se| se.as_database_error())
+                    .and_then(|db| db.code())
+                    .map(|code| code == "23505")
+                    .unwrap_or(false)
+            );
             let code    = if is_conflict { "CONFLICT" } else { "INTERNAL" };
             let message = if is_conflict { "Channel name already exists." }
                           else           { "Could not create channel. Please try again." };
