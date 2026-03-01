@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Synapse</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body   { font-family: monospace; background: #0d1117; color: #c9d1d9;
+             margin: 0; padding: 20px; }
+    h1     { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-top: 0; }
+    #log   { height: 80vh; overflow-y: auto; border: 1px solid #30363d;
+             padding: 10px; background: #161b22; border-radius: 4px; }
+    .msg   { margin: 4px 0; line-height: 1.5; display: flex; gap: 8px; }
+    .ts    { color: #8b949e; font-size: 0.85em; white-space: nowrap; flex-shrink: 0; }
+    .body  { word-break: break-word; }
+    #bar   { color: #3fb950; margin-top: 8px; font-size: 0.85em; }
+    #bar.off { color: #f85149; }
+  </style>
+</head>
+<body>
+  <h1>Synapse Fleet Communications</h1>
+  <div id="log" role="log" aria-live="polite"></div>
+  <div id="bar" class="off">Disconnected</div>
+  <script>
+    const log = document.getElementById('log');
+    const bar = document.getElementById('bar');
+
+    function appendMessage(bodyText) {
+      const row  = document.createElement('div');
+      row.className = 'msg';
+
+      const ts   = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = '[' + new Date().toLocaleTimeString() + ']';
+
+      const body = document.createElement('span');
+      body.className = 'body';
+      body.textContent = bodyText;   // textContent is XSS-safe
+
+      row.appendChild(ts);
+      row.appendChild(body);
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function connect() {
+      const ws = new WebSocket('ws://' + location.host + '/ws');
+
+      ws.onopen = () => {
+        bar.textContent = 'Connected';
+        bar.className = '';
+      };
+      ws.onclose = () => {
+        bar.textContent = 'Disconnected — reconnecting...';
+        bar.className = 'off';
+        setTimeout(connect, 3000);
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data.type === 'message' && typeof data.body === 'string') {
+            appendMessage(data.body);
+          }
+        } catch (_) {}
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>
