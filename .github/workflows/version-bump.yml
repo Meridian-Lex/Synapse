@@ -81,6 +81,7 @@ jobs:
             major) NEW_MAJOR=$((10#$MAJOR + 1)); NEW_MINOR=0; NEW_PATCH=0 ;;
             minor) NEW_MAJOR=$((10#$MAJOR)); NEW_MINOR=$((10#$MINOR + 1)); NEW_PATCH=0 ;;
             patch) NEW_MAJOR=$((10#$MAJOR)); NEW_MINOR=$((10#$MINOR)); NEW_PATCH=$((10#$PATCH + 1)) ;;
+            *) echo "::error::Unknown BUMP_TYPE: $BUMP_TYPE" && exit 1 ;;
           esac
 
           NEW_VERSION="${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"

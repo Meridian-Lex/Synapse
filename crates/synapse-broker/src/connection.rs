@@ -100,11 +100,13 @@ where S: AsyncRead + AsyncWrite + Unpin,
     ack.extend_from_slice(tok_bytes);
     ack.extend_from_slice(&agent_id.to_be_bytes());
     if let Err(e) = write_frame(stream, &FrameHeader::new(MsgType::HelloAck, rand::random(), ack.len() as u32), &ack).await {
-        // HELLO_ACK failed to send — clean up both DB and Redis session to avoid orphaned auth state
+        // HELLO_ACK failed to send — clean up DB session, Redis session, and presence to avoid
+        // orphaned auth state and phantom "online" status
         let _ = db::delete_session(pool, &token).await;
         {
             let mut r = redis.lock().await;
             let _ = cache::del_session(&mut r, &token).await;
+            let _ = cache::remove_presence(&mut r, agent_id).await;
         }
         return Err(e.into());
     }

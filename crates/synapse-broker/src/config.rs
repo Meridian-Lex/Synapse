@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+// BrokerConfig intentionally does not derive Debug to avoid accidental credential logging
+#[derive(Deserialize)]
 pub struct BrokerConfig {
     pub broker:     BrokerSection,
     pub postgres:   PostgresSection,
@@ -18,10 +19,11 @@ pub struct BrokerSection {
     pub max_frame_bytes:     u32,
 }
 
-#[derive(Debug, Deserialize)]
+// Credentials omitted from Debug to prevent secret exposure in logs/panics
+#[derive(Deserialize)]
 pub struct PostgresSection { pub url: String }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct RedisSection { pub url: String }
 
 #[derive(Debug, Deserialize)]
