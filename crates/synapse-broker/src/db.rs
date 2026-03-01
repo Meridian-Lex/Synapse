@@ -58,3 +58,11 @@ pub async fn create_session(pool: &PgPool, token: &str, agent_id: i64, ttl: i64)
      .execute(pool).await?;
     Ok(())
 }
+
+pub async fn delete_session(pool: &PgPool, token: &str) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM sessions WHERE token = $1")
+        .bind(token)
+        .execute(pool)
+        .await?;
+    Ok(())
+}

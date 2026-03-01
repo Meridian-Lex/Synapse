@@ -8,7 +8,7 @@ mod tls;
 mod webui;
 
 use std::sync::Arc;
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{net::TcpListener, sync::{Mutex, Semaphore}};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -26,22 +26,40 @@ async fn main() -> anyhow::Result<()> {
         let addr: std::net::SocketAddr = cfg.webui.listen.parse()?;
         tracing::info!("WebUI on http://{}", addr);
         tokio::spawn(async move {
-            axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(),
-                        webui::build_router(wr))
-                .await.unwrap();
+            match tokio::net::TcpListener::bind(addr).await {
+                Ok(listener) => {
+                    if let Err(e) = axum::serve(listener, webui::build_router(wr)).await {
+                        tracing::error!("WebUI serve error: {e}");
+                    }
+                }
+                Err(e) => tracing::error!("WebUI bind error on {addr}: {e}"),
+            }
         });
     }
 
     let listener = TcpListener::bind(&cfg.broker.listen).await?;
     tracing::info!("Synapse broker on {}", cfg.broker.listen);
 
+    let conn_limit = Arc::new(Semaphore::new(2048));
+
     loop {
-        let (tcp, peer) = listener.accept().await?;
+        let (tcp, peer) = match listener.accept().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("accept error: {e}");
+                continue;
+            }
+        };
         tracing::info!("Connection from {}", peer);
         let (acceptor, pool, redis, router, ttl) =
             (acceptor.clone(), pool.clone(), redis.clone(), router.clone(), cfg.broker.session_ttl_seconds);
 
+        let permit = match conn_limit.clone().acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         tokio::spawn(async move {
+            let _permit = permit;
             match acceptor.accept(tcp).await {
                 Ok(mut tls) => match connection::handshake(&mut tls, &pool, &redis, ttl).await {
                     Ok(agent) => {

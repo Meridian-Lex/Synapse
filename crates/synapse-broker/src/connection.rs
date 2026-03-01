@@ -10,6 +10,7 @@ use synapse_proto::{
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
+use tokio::time::{timeout, Duration};
 use redis::aio::MultiplexedConnection;
 
 pub struct AuthenticatedAgent {
@@ -26,8 +27,8 @@ pub async fn handshake<S>(
 ) -> Result<AuthenticatedAgent>
 where S: AsyncRead + AsyncWrite + Unpin,
 {
-    // Read HELLO
-    let (hdr, payload) = read_frame(stream).await?;
+    // Read HELLO — 5-second deadline guards against slow/malicious clients
+    let (hdr, payload) = timeout(Duration::from_secs(5), read_frame(stream)).await??;
     anyhow::ensure!(hdr.msg_type == MsgType::Hello, "expected HELLO");
     let hello = HelloPayload::decode(&payload)?;
     tracing::info!("HELLO from {}", hello.agent_name);
@@ -41,8 +42,8 @@ where S: AsyncRead + AsyncWrite + Unpin,
     rand::thread_rng().fill_bytes(&mut nonce);
     write_frame(stream, &FrameHeader::new(MsgType::Challenge, rand::random(), 32), &nonce).await?;
 
-    // Read HELLO_RESP
-    let (resp_hdr, resp) = read_frame(stream).await?;
+    // Read HELLO_RESP — 5-second deadline
+    let (resp_hdr, resp) = timeout(Duration::from_secs(5), read_frame(stream)).await??;
     anyhow::ensure!(resp_hdr.msg_type == MsgType::HelloResp, "expected HELLO_RESP");
 
     if !verify_hmac(secret.as_bytes(), &nonce, &resp) {
@@ -59,12 +60,21 @@ where S: AsyncRead + AsyncWrite + Unpin,
     let agent_id = db::get_agent_id(pool, &hello.agent_name).await?
         .ok_or_else(|| anyhow::anyhow!("agent id missing"))?;
 
+    // Persist session to DB; then attempt cache operations with compensating
+    // cleanup on failure so a DB session is never left without a cache entry.
     db::create_session(pool, &token, agent_id, session_ttl as i64).await?;
     db::touch_agent(pool, agent_id).await?;
     {
         let mut r = redis.lock().await;
-        cache::cache_session(&mut r, &token, agent_id, session_ttl).await?;
-        cache::set_presence(&mut r, agent_id).await?;
+        if let Err(e) = cache::cache_session(&mut r, &token, agent_id, session_ttl).await {
+            // Compensate: remove dangling DB session
+            let _ = db::delete_session(pool, &token).await;
+            return Err(e.into());
+        }
+        if let Err(e) = cache::set_presence(&mut r, agent_id).await {
+            let _ = db::delete_session(pool, &token).await;
+            return Err(e.into());
+        }
     }
 
     // Send HELLO_ACK

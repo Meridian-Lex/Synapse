@@ -8,7 +8,11 @@ use synapse_proto::{
     frame::{Encoding, FrameHeader, MsgType},
     message::MsgPayload,
 };
-use tokio::{io::{AsyncRead, AsyncWrite}, sync::Mutex, time::{interval, Duration}};
+use tokio::{
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
+    sync::{mpsc, Mutex},
+    time::{interval, Duration},
+};
 use redis::aio::MultiplexedConnection;
 
 pub async fn run<S>(
@@ -20,10 +24,33 @@ pub async fn run<S>(
 ) -> Result<()>
 where S: AsyncRead + AsyncWrite + Unpin,
 {
+    let result = run_inner(stream, agent, pool, redis, router).await;
+
+    // Presence cleanup always runs, even on error exit.
+    let mut r = redis.lock().await;
+    let _ = cache::remove_presence(&mut r, agent.agent_id).await;
+
+    result
+}
+
+async fn run_inner<S>(
+    stream: &mut S,
+    agent: &AuthenticatedAgent,
+    pool: &PgPool,
+    redis: &Arc<Mutex<MultiplexedConnection>>,
+    router: &Router,
+) -> Result<()>
+where S: AsyncRead + AsyncWrite + Unpin,
+{
     let mut ticker = interval(Duration::from_secs(15));
+
+    // Outbound channel: subscription forwarder tasks send raw frames here,
+    // the select loop writes them to the client stream.
+    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
     loop {
         tokio::select! {
+            // Incoming frame from the connected agent.
             result = read_frame(stream) => {
                 let (hdr, payload) = result?;
                 match hdr.msg_type {
@@ -33,7 +60,32 @@ where S: AsyncRead + AsyncWrite + Unpin,
                     MsgType::Subscribe => {
                         let name = String::from_utf8_lossy(&payload).to_string();
                         if let Some(cid) = db::get_channel_id(pool, &name).await? {
-                            router.subscribe(cid).await;
+                            // Subscribe and retain the receiver — store it in a
+                            // forwarding task rather than dropping it.
+                            let mut rx = router.subscribe(cid).await;
+                            let tx = outbound_tx.clone();
+                            tokio::spawn(async move {
+                                loop {
+                                    match rx.recv().await {
+                                        Ok(frame) => {
+                                            if tx.send(frame).is_err() {
+                                                // Outbound channel closed; agent disconnected.
+                                                break;
+                                            }
+                                        }
+                                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                            tracing::warn!(
+                                                "broadcast receiver on channel {} lagged, dropped {} messages",
+                                                cid, n
+                                            );
+                                            // Continue — next recv() will return the oldest available.
+                                        }
+                                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                            break;
+                                        }
+                                    }
+                                }
+                            });
                             tracing::info!("{} subscribed to {}", agent.agent_name, name);
                         }
                     }
@@ -43,12 +95,14 @@ where S: AsyncRead + AsyncWrite + Unpin,
                             MsgPayload::Dialogue { channel_id, .. } => (*channel_id as i64, 1i16),
                             MsgPayload::Work     { channel_id, .. } => (*channel_id as i64, 2i16),
                         };
+                        // Minor fix: safe u64 -> i64 cast instead of bare `as i64`.
+                        let msg_id: i64 = hdr.message_id.try_into().unwrap_or(i64::MAX);
                         let (body, compressed, enc) = if should_compress(&payload) {
                             (compress(&payload)?, true, Encoding::Zstd)
                         } else {
                             (payload.clone(), false, Encoding::Raw)
                         };
-                        db::store_message(pool, hdr.message_id as i64, channel_id, agent.agent_id,
+                        db::store_message(pool, msg_id, channel_id, agent.agent_id,
                             content_type, &body, compressed, 0, None).await?;
                         let mut route_hdr = FrameHeader::new(MsgType::Msg, hdr.message_id, body.len() as u32);
                         route_hdr.encoding = enc;
@@ -68,6 +122,16 @@ where S: AsyncRead + AsyncWrite + Unpin,
                     _ => {}
                 }
             }
+
+            // Forwarded frames from subscribed broadcast channels.
+            Some(frame) = outbound_rx.recv() => {
+                // The frame already contains the full serialised header + payload
+                // as assembled in the Msg handler above; write it directly.
+                stream.write_all(&frame).await?;
+                stream.flush().await?;
+            }
+
+            // Periodic presence heartbeat.
             _ = ticker.tick() => {
                 let mut r = redis.lock().await;
                 cache::set_presence(&mut r, agent.agent_id).await?;
@@ -75,7 +139,5 @@ where S: AsyncRead + AsyncWrite + Unpin,
         }
     }
 
-    let mut r = redis.lock().await;
-    cache::remove_presence(&mut r, agent.agent_id).await?;
     Ok(())
 }

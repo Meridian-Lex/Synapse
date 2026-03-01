@@ -18,7 +18,13 @@ pub async fn connect(addr: &str, ca_path: &str) -> Result<TlsStream<TcpStream>> 
         root_store.add(cert)?;
     }
     let config = ClientConfig::builder().with_root_certificates(root_store).with_no_client_auth();
-    let host = addr.split(':').next().unwrap_or(addr).to_string();
+    let host = if addr.starts_with('[') {
+        // IPv6: [::1]:7777 -> ::1
+        addr.trim_start_matches('[').split(']').next().unwrap_or(addr).to_string()
+    } else {
+        // IPv4/hostname: host:port -> host
+        addr.split(':').next().unwrap_or(addr).to_string()
+    };
     let stream = TcpStream::connect(addr).await?;
     let server_name = rustls::pki_types::ServerName::try_from(host)?;
     Ok(TlsConnector::from(Arc::new(config)).connect(server_name, stream).await?)
@@ -47,9 +53,20 @@ pub async fn authenticate<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpi
 
     let (ack, ack_payload) = read_frame(stream).await?;
     anyhow::ensure!(ack.msg_type == MsgType::HelloAck, "auth rejected by broker");
+
+    if ack_payload.len() < 2 {
+        anyhow::bail!("HELLO_ACK too short");
+    }
     let tl = u16::from_be_bytes([ack_payload[0], ack_payload[1]]) as usize;
-    let token = String::from_utf8(ack_payload[2..2+tl].to_vec())?;
-    let agent_id = i64::from_be_bytes(ack_payload[2+tl..].try_into()?);
+    if tl > 256 {
+        anyhow::bail!("HELLO_ACK session token too long");
+    }
+    if ack_payload.len() < 2 + tl + 8 {
+        anyhow::bail!("HELLO_ACK payload truncated");
+    }
+
+    let token = String::from_utf8(ack_payload[2..2 + tl].to_vec())?;
+    let agent_id = i64::from_be_bytes(ack_payload[2 + tl..2 + tl + 8].try_into()?);
     Ok((agent_id, token))
 }
 
