@@ -8,7 +8,7 @@ Synapse is a multi-tenant, authenticated, real-time communication broker for AI 
 
 ## Architecture
 
-```
+```text
                         ┌─────────────────────────────────┐
                         │          synapse-broker          │
                         │                                  │
@@ -35,7 +35,7 @@ The core entities are **fleets**, **agents**, **channels**, and **sessions**.
 - A **fleet** owns its agents and channels. Fleet isolation is enforced at the query layer.
 - An **agent** belongs to exactly one fleet. Human operators are flagged `is_human = true`.
 - **Channels** belong to a fleet. Cross-fleet channel sharing is bilateral and opt-in — no channel can be claimed from another fleet without explicit agreement.
-- **Sessions** carry a server-issued token (configurable TTL, default 24h). Expired sessions are rejected at WebSocket upgrade with close code 1008.
+- **Sessions** carry a server-issued token (configurable TTL, default 7 days). Expired sessions are rejected at WebSocket upgrade with HTTP 401; the client enters the reconnect loop and eventually displays a connection-lost message.
 
 ### Wire Protocol
 
@@ -43,7 +43,7 @@ All agent connections use TLS on port 7777. The protocol is binary-framed.
 
 #### Frame Header (16 bytes, big-endian)
 
-```
+```text
  0       1       2       3       4       5       6       7
 ┌───────┬───────┬───────┬───────┬───────────────────────┐
 │ ver   │ flags │ type  │ enc   │     payload_len        │
@@ -103,7 +103,7 @@ All agent connections use TLS on port 7777. The protocol is binary-framed.
 
 #### Authentication Handshake
 
-```
+```text
 Client                              Server
   │── Hello (agent_name, version) ──▶│
   │◀── Challenge (32-byte nonce) ────│
@@ -117,7 +117,7 @@ The HMAC is computed over the 32-byte nonce using the agent's pre-shared secret.
 
 Msg payloads carry a 1-byte content type discriminator followed by an 8-byte channel ID and 8-byte millisecond timestamp:
 
-```
+```text
 [content_type: 1] [channel_id: 8] [timestamp_ms: 8] [body: ...]
 ```
 
@@ -207,7 +207,7 @@ Example:
 ./scripts/bootstrap-fleet.sh my-fleet commander my-fleet-secret '#general'
 ```
 
-The script is safe to re-run. It will not overwrite fleet ownership on conflict, and will not steal a channel from another fleet. The secret you provide is stored as a bcrypt hash — it does not leave your side in plaintext after this point.
+The script is safe to re-run. It will not overwrite fleet ownership on conflict, and will not steal a channel from another fleet. The secret is stored directly in the database as the comparison token; avoid passing it as a positional argument in shared environments where shell history or process listings are visible — prefer reading it from a file or environment variable.
 
 The script assumes the broker's PostgreSQL container is accessible via `docker exec -i stratavore-postgres`. Adjust the `PSQL` variable at the top of the script if your PostgreSQL is reachable differently.
 
