@@ -18,6 +18,7 @@ All work on `feat/fleet-webui`. Never commit to master directly.
 
 ```bash
 git checkout feat/fleet-webui
+
 ```
 
 ---
@@ -31,14 +32,18 @@ git checkout feat/fleet-webui
 **Step 1: Update `[workspace.dependencies]` in `Cargo.toml`**
 
 Add:
+
 ```toml
 chrono = { version = "0.4", features = ["serde"] }
 uuid   = { version = "1",   features = ["v4"] }
+
 ```
 
 Update the existing sqlx entry to add `"uuid"` to features:
+
 ```toml
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "migrate", "uuid"] }
+
 ```
 
 **Step 2: Add to `crates/synapse-broker/Cargo.toml` `[dependencies]`**
@@ -46,12 +51,14 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "mi
 ```toml
 chrono = { workspace = true }
 uuid   = { workspace = true }
+
 ```
 
 **Step 3: Verify compilation**
 
 ```bash
 cargo build -p synapse-broker 2>&1 | head -20
+
 ```
 
 Expected: no errors (warnings OK at this stage)
@@ -61,6 +68,7 @@ Expected: no errors (warnings OK at this stage)
 ```bash
 git add Cargo.toml Cargo.lock crates/synapse-broker/Cargo.toml
 git commit -m "chore(broker): add chrono, uuid deps; add sqlx uuid feature"
+
 ```
 
 ---
@@ -97,18 +105,21 @@ ALTER TABLE agents
 
 ALTER TABLE channels
     ADD COLUMN fleet_id BIGINT REFERENCES fleets(id);
+
 ```
 
 **Step 2: Check if sqlx auto-migration is wired up**
 
 ```bash
 grep -r "migrate" crates/synapse-broker/src/
+
 ```
 
 If `db::connect` does not call `sqlx::migrate!()`, add this to `main.rs` after `db::connect`:
 
 ```rust
 sqlx::migrate!("../../migrations").run(&pool).await?;
+
 ```
 
 **Step 3: Apply the migration**
@@ -120,6 +131,7 @@ cd /home/meridian/meridian-home/projects/Gantry
 LEX_CERTS_DIR=/home/meridian/meridian-home/lex-internal/certs \
   docker compose -f communication/synapse/docker-compose.yml restart synapse-broker
 docker logs stratavore-synapse 2>&1 | grep -i migrat
+
 ```
 
 Expected output: `Applied 1 migration(s)` or similar.
@@ -129,6 +141,7 @@ Expected output: `Applied 1 migration(s)` or similar.
 ```bash
 docker exec stratavore-postgres psql -U postgres -d synapse -c "\d fleets"
 docker exec stratavore-postgres psql -U postgres -d synapse -c "\d agents" | grep -E "fleet|human|uuid|default"
+
 ```
 
 **Step 5: Commit**
@@ -136,6 +149,7 @@ docker exec stratavore-postgres psql -U postgres -d synapse -c "\d agents" | gre
 ```bash
 git add migrations/002_fleet.sql
 git commit -m "feat(db): migration 002 — fleet, fleet_shares, agent_uuid columns"
+
 ```
 
 ---
@@ -181,24 +195,30 @@ pub fn build_router(broker_router: Arc<Router>, pool: PgPool) -> AxumRouter {
         .route("/ws",    get(ws_handler))
         .with_state(state)
 }
+
 ```
 
 **Step 2: Update `main.rs`** — pass pool to build_router
 
 Find:
+
 ```rust
 if let Err(e) = axum::serve(listener, webui::build_router(wr)).await {
+
 ```
 
 Replace with:
+
 ```rust
 if let Err(e) = axum::serve(listener, webui::build_router(wr, pool.clone())).await {
+
 ```
 
 **Step 3: Compile check** (will fail on missing handler stubs — that is expected)
 
 ```bash
 cargo build -p synapse-broker 2>&1 | grep "^error" | head -20
+
 ```
 
 Expected: errors about missing `serve_index`, `serve_login`, `handle_login`, `ws_handler`. NOT signature errors on `build_router`. Fix any signature errors before proceeding.
@@ -255,6 +275,7 @@ Expected: errors about missing `serve_index`, `serve_login`, `handle_login`, `ws
 </div>
 </body>
 </html>
+
 ```
 
 **Step 2: Add `serve_login` and `login_error_response` to `webui.rs`**
@@ -271,12 +292,14 @@ fn login_error_response(msg: &str) -> Response {
         .replace("{{ERROR}}", &format!(r#"<p class="error">{safe_msg}</p>"#));
     (StatusCode::UNAUTHORIZED, Html(body)).into_response()
 }
+
 ```
 
 **Step 3: Compile check** — only `serve_index`, `handle_login`, `ws_handler` should now be missing
 
 ```bash
 cargo build -p synapse-broker 2>&1 | grep "^error"
+
 ```
 
 ---
@@ -345,12 +368,14 @@ async fn handle_login(
     )
         .into_response()
 }
+
 ```
 
 **Step 2: Compile check**
 
 ```bash
 cargo build -p synapse-broker 2>&1 | grep "^error"
+
 ```
 
 Expected: only `serve_index` and `ws_handler` still missing.
@@ -385,6 +410,7 @@ async fn validate_session(pool: &PgPool, token: &str) -> Option<i64> {
     .ok()??;
     Some(row.agent_id)
 }
+
 ```
 
 **Step 2: Add serve_index**
@@ -400,6 +426,7 @@ async fn serve_index(State(state): State<WebUiState>, headers: HeaderMap) -> Res
     }
     Html(include_str!("../../../webui/index.html")).into_response()
 }
+
 ```
 
 **Step 3: Create placeholder `webui/index.html`**
@@ -410,12 +437,14 @@ async fn serve_index(State(state): State<WebUiState>, headers: HeaderMap) -> Res
 <body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:2rem">
 <p>WebUI loading — implementation in progress.</p>
 </body></html>
+
 ```
 
 **Step 4: Compile check — should be zero errors now**
 
 ```bash
 cargo build -p synapse-broker 2>&1 | grep "^error"
+
 ```
 
 **Step 5: Commit**
@@ -425,6 +454,7 @@ git add crates/synapse-broker/src/webui.rs \
         crates/synapse-broker/src/main.rs \
         webui/login.html webui/index.html
 git commit -m "feat(webui): HTTP session auth — login form, POST handler, session guard, cookie"
+
 ```
 
 ---
@@ -623,13 +653,16 @@ pub async fn create_channel(
 
     Ok(ChannelInfo { id: row.id, name: row.name, fleet_name })
 }
+
 ```
 
 **Step 2: Add `mod webui_handlers;` to `main.rs`**
 
 Add after existing `mod` declarations:
+
 ```rust
 mod webui_handlers;
+
 ```
 
 **Step 3: Add ws_handler and main WS loop to `webui.rs`**
@@ -731,6 +764,7 @@ async fn handle_ws_connection(
         }
     }
 }
+
 ```
 
 **Step 4: Add dispatch_command stub**
@@ -864,12 +898,14 @@ async fn handle_create_channel(
     }
     Ok(())
 }
+
 ```
 
 **Step 5: Compile check**
 
 ```bash
 cargo build -p synapse-broker 2>&1 | grep "^error"
+
 ```
 
 Note: `send_as_human` is referenced but not yet defined — will be added in Task 8. Add a placeholder to allow compile:
@@ -882,6 +918,7 @@ pub async fn send_as_human(
 ) -> Result<(), anyhow::Error> {
     Ok(())
 }
+
 ```
 
 **Step 6: Commit**
@@ -891,6 +928,7 @@ git add crates/synapse-broker/src/webui.rs \
         crates/synapse-broker/src/webui_handlers.rs \
         crates/synapse-broker/src/main.rs
 git commit -m "feat(webui): WebSocket session auth + fleet channel init + command dispatch"
+
 ```
 
 ---
@@ -905,18 +943,21 @@ git commit -m "feat(webui): WebSocket session auth + fleet channel init + comman
 ```bash
 grep -A10 "pub fn new\|pub fn to_bytes\|pub struct FrameHeader" \
   crates/synapse-proto/src/frame.rs | head -60
+
 ```
 
 Also check how msg_loop.rs builds frames (it does this for Ack frames at least):
 
 ```bash
 grep -A10 "FrameHeader" crates/synapse-broker/src/msg_loop.rs | head -40
+
 ```
 
 **Step 2: Read router.publish signature**
 
 ```bash
 grep -A5 "pub async fn publish\|pub fn publish" crates/synapse-broker/src/router.rs
+
 ```
 
 **Step 3: Replace the placeholder send_as_human with the real implementation**
@@ -974,12 +1015,14 @@ pub async fn send_as_human(
 
     Ok(())
 }
+
 ```
 
 **Step 4: Compile check**
 
 ```bash
 cargo build -p synapse-broker 2>&1 | grep "^error"
+
 ```
 
 **Step 5: Commit**
@@ -987,6 +1030,7 @@ cargo build -p synapse-broker 2>&1 | grep "^error"
 ```bash
 git add crates/synapse-broker/src/webui_handlers.rs
 git commit -m "feat(webui): send_as_human — Dialogue frame construction and router publish"
+
 ```
 
 ---
@@ -1148,7 +1192,8 @@ function connect() {
   });
 
   ws.addEventListener('close', (e) => {
-    // 1008 = session expired, redirect to login
+    // Auth expiry arrives as 1006 (abnormal close) from failed HTTP 401 upgrade
+    // Current: reconnect with backoff, then show connection-lost message
     if (e.code === 1008 || e.code === 4001) { location.href = '/login'; return; }
     if (reconnectAttempt < RECONNECT_DELAYS.length) {
       setTimeout(connect, RECONNECT_DELAYS[reconnectAttempt++]);
@@ -1350,12 +1395,14 @@ connect();
 </script>
 </body>
 </html>
+
 ```
 
 **Step 2: Compile check**
 
 ```bash
 cargo build -p synapse-broker 2>&1 | grep "^error"
+
 ```
 
 **Step 3: Commit**
@@ -1363,6 +1410,7 @@ cargo build -p synapse-broker 2>&1 | grep "^error"
 ```bash
 git add webui/index.html
 git commit -m "feat(webui): full interactive frontend — safe DOM API, fleet sidebar, send, channel create"
+
 ```
 
 ---
@@ -1440,12 +1488,14 @@ $$;
 SQL
 
 echo "[bootstrap-fleet] Complete."
+
 ```
 
 **Step 2: Make executable**
 
 ```bash
 chmod +x scripts/bootstrap-fleet.sh
+
 ```
 
 **Step 3: Run for the Lex fleet**
@@ -1455,6 +1505,7 @@ COMMANDER_SECRET=$(docker exec stratavore-postgres psql -U postgres -d synapse \
   -tAc "SELECT secret_hash FROM agents WHERE name='commander'")
 
 ./scripts/bootstrap-fleet.sh lex commander "${COMMANDER_SECRET}" '#general'
+
 ```
 
 **Step 4: Verify**
@@ -1466,6 +1517,7 @@ docker exec stratavore-postgres psql -U postgres -d synapse -c \
    LEFT JOIN fleets f ON f.id = a.fleet_id
    LEFT JOIN channels c ON c.id = a.default_channel_id
    WHERE a.name = 'commander'"
+
 ```
 
 Expected: 1 row with fleet=lex, default_channel=#general, is_human=t
@@ -1475,6 +1527,7 @@ Expected: 1 row with fleet=lex, default_channel=#general, is_human=t
 ```bash
 git add scripts/bootstrap-fleet.sh
 git commit -m "feat(scripts): bootstrap-fleet.sh — idempotent fleet/human-agent/channel setup"
+
 ```
 
 ---
@@ -1485,6 +1538,7 @@ git commit -m "feat(scripts): bootstrap-fleet.sh — idempotent fleet/human-agen
 
 ```bash
 cargo build --release -p synapse-broker 2>&1 | grep "^error"
+
 ```
 
 Expected: 0 errors.
@@ -1493,6 +1547,7 @@ Expected: 0 errors.
 
 ```bash
 cargo test --workspace 2>&1 | tail -20
+
 ```
 
 Expected: all tests pass.
@@ -1505,6 +1560,7 @@ cargo build --release -p synapse-broker
 docker cp target/release/synapse-broker stratavore-synapse:/usr/local/bin/synapse-broker
 docker restart stratavore-synapse
 docker logs stratavore-synapse --tail=20
+
 ```
 
 Expected: `Applied 1 migration(s)`, broker starts.
@@ -1515,6 +1571,7 @@ Expected: `Applied 1 migration(s)`, broker starts.
 COMMANDER_SECRET=$(docker exec stratavore-postgres psql -U postgres -d synapse \
   -tAc "SELECT secret_hash FROM agents WHERE name='commander'")
 ./scripts/bootstrap-fleet.sh lex commander "${COMMANDER_SECRET}" '#general'
+
 ```
 
 **Step 5: Smoke test**
@@ -1558,10 +1615,11 @@ gh pr create \
 - [ ] Send from WebUI: synapse-cli listener receives Dialogue frame
 - [ ] Channel create: appears in sidebar, exists in DB
 - [ ] Cross-fleet channel visible after fleet_shares insert
-- [ ] Expired session: WS close 1008, browser redirects to /login
+- [ ] Expired session: WS upgrade rejected HTTP 401, browser redirects to /login
 
 EOF
 )"
+
 ```
 
 ---
@@ -1582,12 +1640,14 @@ Post a review request comment on the PR:
 gh api --method POST \
   repos/Meridian-Lex/Synapse/issues/<PR_NUMBER>/comments \
   -f body='@coderabbitai review'
+
 ```
 
 **Step 2: Cryopod — wait for review completion**
 
 ```bash
 sleep 1800   # 30 minutes — CodeRabbit + Sourcery both need time to complete
+
 ```
 
 Check for activity if needed:
@@ -1596,6 +1656,7 @@ Check for activity if needed:
 gh api repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/reviews \
   --jq '.[] | {user: .user.login, state: .state, submitted_at: .submitted_at}' \
   | jq -s 'sort_by(.submitted_at) | reverse | .[0:5]'
+
 ```
 
 **Step 3: Extract all review threads and AI agent prompts**
@@ -1618,6 +1679,7 @@ gh api graphql -f query='
     }
   }
 }'
+
 ```
 
 ```bash
@@ -1625,6 +1687,7 @@ gh api graphql -f query='
 gh api repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/reviews \
   --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id: .id, state: .state, body: .body, submitted_at: .submitted_at}' \
   | jq -s 'sort_by(.submitted_at) | reverse | .[0:2]'
+
 ```
 
 Look for:
@@ -1648,6 +1711,7 @@ For each fixable finding:
 git add <changed files>
 git commit -m "fix: <description of finding resolved>"
 git push origin feat/fleet-webui
+
 ```
 
 Group related fixes into a single commit where sensible. One commit per logical fix — not one per thread.
@@ -1659,6 +1723,7 @@ Get inline comment IDs:
 ```bash
 gh api repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/comments \
   --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id: .id, path: .path, line: .line}'
+
 ```
 
 Reply to each thread with resolution confirmation:
@@ -1667,6 +1732,7 @@ Reply to each thread with resolution confirmation:
 gh api --method POST \
   repos/Meridian-Lex/Synapse/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
   -f body='**RESOLVED** - [concise description of fix applied, or reason not applicable]'
+
 ```
 
 Reply format:
@@ -1685,6 +1751,7 @@ mutation {
     thread { isResolved }
   }
 }'
+
 ```
 
 Verify all threads resolved:
@@ -1700,6 +1767,7 @@ gh api graphql -f query='
     }
   }
 }' | jq '.data.repository.pullRequest.reviewThreads.nodes | map(select(.isResolved == false)) | length'
+
 ```
 
 Expected: `0`
@@ -1710,6 +1778,7 @@ Expected: `0`
 gh pr view <PR_NUMBER> --repo Meridian-Lex/Synapse \
   --json reviewDecision,mergeStateStatus,reviews \
   | jq '{reviewDecision, mergeStateStatus}'
+
 ```
 
 - `reviewDecision=APPROVED` + `mergeStateStatus=CLEAN` → proceed to Step 10
@@ -1723,6 +1792,7 @@ gh api --method POST \
   -f body='@coderabbitai review'
 
 sleep 1800  # reduced to 15 min for subsequent cycles if PR is quiet
+
 ```
 
 Repeat Steps 3–8 until clean.
@@ -1737,6 +1807,7 @@ gh pr merge <PR_NUMBER> \
 # Confirm merge state
 gh pr view <PR_NUMBER> --repo Meridian-Lex/Synapse \
   --json state,mergedAt,mergeStateStatus | jq .
+
 ```
 
 If conditions already met (APPROVED + CLEAN), auto-merge triggers immediately. Confirm `state=MERGED`.
@@ -1751,6 +1822,7 @@ cd /home/meridian/meridian-home/lex-internal
 git add state/TASK-QUEUE.md
 git commit -m "chore: Task 61 complete — Synapse Fleet WebUI merged"
 git push origin master
+
 ```
 
 ---
