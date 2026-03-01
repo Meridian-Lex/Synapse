@@ -86,7 +86,9 @@ pub struct MessageRecord {
 }
 
 /// Fetch last `limit` messages for a channel, returned oldest-first.
+/// `limit` is clamped to 1..=500 to prevent unbounded queries.
 pub async fn fetch_history(pool: &PgPool, channel_id: i64, limit: i64) -> Vec<MessageRecord> {
+    let limit = limit.clamp(1, 500);
     let rows = sqlx::query!(
         r#"
         SELECT a.name AS sender, m.body, m.created_at
