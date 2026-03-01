@@ -65,7 +65,7 @@ async fn handle_ws(mut socket: WebSocket, router: Arc<Router>) {
                 if payload.len() > 17 && payload[0] == 0x01 {
                     if let Ok(text) = std::str::from_utf8(&payload[17..]) {
                         let json = serde_json::json!({ "type": "message", "body": text }).to_string();
-                        if socket.send(Message::Text(json.into())).await.is_err() { break; }
+                        if socket.send(Message::Text(json)).await.is_err() { break; }
                     }
                 }
             }

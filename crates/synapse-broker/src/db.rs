@@ -35,6 +35,7 @@ pub async fn get_channel_id(pool: &PgPool, name: &str) -> Result<Option<i64>> {
     Ok(row.map(|(id,)| id))
 }
 
+#[allow(clippy::too_many_arguments)]  // all args are required distinct message fields
 pub async fn store_message(
     pool: &PgPool, uuid: i64, channel_id: i64, sender_id: i64,
     content_type: i16, body: &[u8], compressed: bool, priority: i16,

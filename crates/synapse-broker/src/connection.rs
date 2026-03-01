@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
 use redis::aio::MultiplexedConnection;
 
+#[allow(dead_code)]  // session_token is stored for future session-revocation and audit use
 pub struct AuthenticatedAgent {
     pub agent_id:      i64,
     pub agent_name:    String,
@@ -69,11 +70,11 @@ where S: AsyncRead + AsyncWrite + Unpin,
         if let Err(e) = cache::cache_session(&mut r, &token, agent_id, session_ttl).await {
             // Compensate: remove dangling DB session
             let _ = db::delete_session(pool, &token).await;
-            return Err(e.into());
+            return Err(e);
         }
         if let Err(e) = cache::set_presence(&mut r, agent_id).await {
             let _ = db::delete_session(pool, &token).await;
-            return Err(e.into());
+            return Err(e);
         }
     }
 

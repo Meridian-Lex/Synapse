@@ -25,6 +25,7 @@ pub struct PostgresSection { pub url: String }
 pub struct RedisSection { pub url: String }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]  // read_only is parsed from config; reserved for future access-control enforcement
 pub struct WebuiSection { pub enabled: bool, pub listen: String, pub read_only: bool }
 
 #[derive(Debug, Deserialize)]
