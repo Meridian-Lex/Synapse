@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT a.name AS sender, m.body, m.created_at\n        FROM (\n            SELECT sender_id, body, created_at\n            FROM messages\n            WHERE channel_id = $1 AND content_type = 1\n            ORDER BY created_at DESC\n            LIMIT $2\n        ) m\n        JOIN agents a ON a.id = m.sender_id\n        ORDER BY m.created_at ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "body",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3da1ddff6056984d096c17c370dee6b7058a30fbaf2a484d796604eaaf4a8afe"
+}

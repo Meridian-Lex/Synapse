@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT c.id, c.name AS \"name!\", f.name AS \"fleet_name!\"\n        FROM channels c\n        JOIN fleets f ON f.id = c.fleet_id\n        WHERE c.fleet_id = $1\n           OR c.fleet_id IN (\n               SELECT shared_with_fleet_id FROM fleet_shares WHERE fleet_id = $1\n               UNION\n               SELECT fleet_id FROM fleet_shares WHERE shared_with_fleet_id = $1\n           )\n        ORDER BY f.name, c.name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "fleet_name!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8e86a85eee3c144b4de0742c3468142503c444d93a0e3e865bb8c35280b8d724"
+}

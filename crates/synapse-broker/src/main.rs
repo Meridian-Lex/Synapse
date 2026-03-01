@@ -6,6 +6,7 @@ mod msg_loop;
 mod router;
 mod tls;
 mod webui;
+mod webui_handlers;
 
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::{Mutex, Semaphore}};
@@ -23,12 +24,13 @@ async fn main() -> anyhow::Result<()> {
 
     if cfg.webui.enabled {
         let wr = Arc::new(router.clone());
+        let webui_pool = pool.clone();
         let addr: std::net::SocketAddr = cfg.webui.listen.parse()?;
         tracing::info!("WebUI on http://{}", addr);
         tokio::spawn(async move {
             match tokio::net::TcpListener::bind(addr).await {
                 Ok(listener) => {
-                    if let Err(e) = axum::serve(listener, webui::build_router(wr)).await {
+                    if let Err(e) = axum::serve(listener, webui::build_router(wr, webui_pool)).await {
                         tracing::error!("WebUI serve error: {e}");
                     }
                 }
