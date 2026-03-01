@@ -137,7 +137,7 @@ async fn handle_login(
     }
 
     let cookie = format!(
-        "session={token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800"
+        "session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800"
     );
     (
         StatusCode::SEE_OTHER,

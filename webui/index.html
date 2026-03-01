@@ -19,7 +19,8 @@ body { background: #0d1117; color: #e6edf3; font-family: monospace;
 .fleet-group-label { padding: 0.4rem 1rem; font-size: 0.7rem; color: #6e7681;
                      text-transform: uppercase; letter-spacing: 0.08em;
                      margin-top: 0.5rem; }
-.channel-item { padding: 0.35rem 1rem; cursor: pointer; font-size: 0.85rem;
+.channel-item { width: 100%; border: 0; background: none; text-align: left;
+                padding: 0.35rem 1rem; cursor: pointer; font-size: 0.85rem;
                 color: #8b949e; display: flex; justify-content: space-between;
                 align-items: center; }
 .channel-item:hover { background: #21262d; color: #e6edf3; }
@@ -230,8 +231,11 @@ function renderChannelList() {
     }
 
     groups[fleetName].forEach(ch => {
-      const el = document.createElement('div');
-      el.className = 'channel-item' + (ch.name === activeChannel ? ' active' : '');
+      const isActive = ch.name === activeChannel;
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'channel-item' + (isActive ? ' active' : '');
+      if (isActive) el.setAttribute('aria-current', 'true');
 
       const nameSpan = document.createElement('span');
       nameSpan.textContent = ch.name;

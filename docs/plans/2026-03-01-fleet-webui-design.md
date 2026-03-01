@@ -106,7 +106,7 @@ WS  /ws      → cookie sent automatically by browser
                              → interactive session begins
 ```
 
-Session expiry: 7 days. Expired sessions are rejected at WebSocket upgrade with HTTP 401; browser JS detects the failed upgrade and redirects to `/login`.
+Session expiry: 7 days. Expired sessions are rejected at WebSocket upgrade with HTTP 401; the client receives close code 1006 (abnormal closure) and enters the reconnect loop, eventually displaying "Connection lost. Reload to reconnect."
 
 Secret comparison is direct equality against `secret_hash`. Same trust posture as the CLI.
 
@@ -230,7 +230,7 @@ Sharing is symmetric: either direction of `fleet_shares` row grants read + write
 
 | Scenario | Behaviour |
 |----------|-----------|
-| Missing/expired session cookie | 401 on WS upgrade, browser redirects to `/login` |
+| Missing/expired session cookie | 401 on WS upgrade; client enters reconnect loop, then shows "Connection lost" |
 | Wrong secret on login | 401, re-render login form with error message |
 | Send to unshared cross-fleet channel | `{"type":"error","code":"FORBIDDEN"}` |
 | Channel name collision | `{"type":"error","code":"CONFLICT"}` |

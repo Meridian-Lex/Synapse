@@ -1615,7 +1615,7 @@ gh pr create \
 - [ ] Send from WebUI: synapse-cli listener receives Dialogue frame
 - [ ] Channel create: appears in sidebar, exists in DB
 - [ ] Cross-fleet channel visible after fleet_shares insert
-- [ ] Expired session: WS upgrade rejected HTTP 401, browser redirects to /login
+- [ ] Expired session: WS upgrade rejected HTTP 401; client enters reconnect loop then shows "Connection lost. Reload to reconnect."
 
 EOF
 )"
