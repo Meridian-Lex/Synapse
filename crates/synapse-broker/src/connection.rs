@@ -65,17 +65,21 @@ where S: AsyncRead + AsyncWrite + Unpin,
     // cleanup on failure so a DB session is never left without a cache entry.
     db::create_session(pool, &token, agent_id, session_ttl as i64).await?;
     db::touch_agent(pool, agent_id).await?;
-    {
+    // Scope the Redis lock so it is released before any compensating DB call.
+    let cache_result = {
         let mut r = redis.lock().await;
-        if let Err(e) = cache::cache_session(&mut r, &token, agent_id, session_ttl).await {
-            // Compensate: remove dangling DB session
-            let _ = db::delete_session(pool, &token).await;
-            return Err(e);
-        }
-        if let Err(e) = cache::set_presence(&mut r, agent_id).await {
-            let _ = db::delete_session(pool, &token).await;
-            return Err(e);
-        }
+        let session_result = cache::cache_session(&mut r, &token, agent_id, session_ttl).await;
+        let presence_result = if session_result.is_ok() {
+            cache::set_presence(&mut r, agent_id).await
+        } else {
+            Ok(())
+        };
+        session_result.and(presence_result).err()
+    };
+    if let Some(e) = cache_result {
+        // Compensate: remove dangling DB session (Redis lock already released)
+        let _ = db::delete_session(pool, &token).await;
+        return Err(e);
     }
 
     // Send HELLO_ACK

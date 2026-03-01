@@ -28,9 +28,17 @@ async fn ws_handler(ws: WebSocketUpgrade, State(router): State<Arc<Router>>) -> 
 async fn handle_ws(mut socket: WebSocket, router: Arc<Router>) {
     // Subscribe to #general (channel id 1, seeded in migration)
     let mut rx = router.subscribe(1).await;
+    tracing::debug!("webui: observer connected, subscribed to channel 1");
     loop {
         tokio::select! {
-            Ok(frame) = rx.recv() => {
+            result = rx.recv() => {
+            let frame = match result {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::debug!("webui: subscription channel closed or lagged: {}", e);
+                    break;
+                }
+            };
                 if frame.len() < HEADER_LEN {
                     continue;
                 }

@@ -47,5 +47,12 @@ pub fn load(path: &str) -> anyhow::Result<BrokerConfig> {
         return Err(anyhow::anyhow!("rate_limit.messages_per_minute must be > 0"));
     }
 
+    if !std::path::Path::new(&cfg.broker.tls_cert).exists() {
+        anyhow::bail!("broker.tls_cert path does not exist: {}", cfg.broker.tls_cert);
+    }
+    if !std::path::Path::new(&cfg.broker.tls_key).exists() {
+        anyhow::bail!("broker.tls_key path does not exist: {}", cfg.broker.tls_key);
+    }
+
     Ok(cfg)
 }

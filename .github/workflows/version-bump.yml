@@ -188,7 +188,7 @@ jobs:
           printf "Version bump triggered by merged PR #%s\n\nAutomated bump from %s to %s.\nBump type: %s\nOriginal PR: #%s (%s)\n" \
             "$PR_NUM" "$OLD_VER" "$NEW_VER" "$BUMP_TYPE" "$PR_NUM" "$PR_TITLE" > /tmp/pr_body.txt
 
-          EXISTING_PR=$(gh pr list --head "version-bump/$NEW_VER" --json url --jq '.[0].url' || echo "")
+          EXISTING_PR=$(gh pr list --head "version-bump/$NEW_VER" --json url --jq '.[0].url // empty' || echo "")
 
           if [ -n "$EXISTING_PR" ]; then
             PR_URL="$EXISTING_PR"
