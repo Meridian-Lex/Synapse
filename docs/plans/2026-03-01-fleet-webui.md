@@ -1114,7 +1114,9 @@ body { background: #0d1117; color: #e6edf3; font-family: monospace;
 <script>
 'use strict';
 
-const WS_URL = `ws://${location.host}/ws`;
+const _wsUrl = new URL('/ws', location.href);
+_wsUrl.protocol = _wsUrl.protocol.replace('http', 'ws');
+const WS_URL = _wsUrl.href;
 const RECONNECT_DELAYS = [1000, 3000, 7000];
 const HISTORY_LIMIT = 50;
 

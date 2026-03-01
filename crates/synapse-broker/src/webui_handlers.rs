@@ -107,7 +107,10 @@ pub async fn fetch_history(pool: &PgPool, channel_id: i64, limit: i64) -> Vec<Me
     )
     .fetch_all(pool)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| {
+        warn!("webui: fetch_history failed for channel_id={}: {}", channel_id, e);
+        vec![]
+    });
 
     rows.into_iter()
         .map(|r| MessageRecord {
