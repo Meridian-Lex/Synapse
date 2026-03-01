@@ -35,7 +35,15 @@ async fn subscribe_channel<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unp
     let payload = channel.as_bytes().to_vec();
     write_frame(stream, &FrameHeader::new(MsgType::Subscribe, rand::random(), payload.len() as u32), &payload).await?;
     // Read SubscribeAck — broker replies with the resolved channel_id (8 bytes BE).
-    let (ack, ack_payload) = read_frame(stream).await?;
+    // 10-second timeout guards against broker silence (e.g. network partition or unknown channel).
+    let (ack, ack_payload) = tokio::time::timeout(
+        tokio::time::Duration::from_secs(10),
+        read_frame(stream),
+    ).await
+    .map_err(|_| anyhow::anyhow!("timed out waiting for SubscribeAck on channel '{}'", channel))??;
+    if ack.msg_type == MsgType::Error {
+        anyhow::bail!("broker error: {}", String::from_utf8_lossy(&ack_payload));
+    }
     anyhow::ensure!(ack.msg_type == MsgType::SubscribeAck, "expected SubscribeAck, got {:?}", ack.msg_type);
     anyhow::ensure!(ack_payload.len() == 8, "SubscribeAck payload wrong length");
     Ok(u64::from_be_bytes(ack_payload.try_into().unwrap()))

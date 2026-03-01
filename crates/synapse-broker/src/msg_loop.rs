@@ -100,6 +100,14 @@ where S: AsyncRead + AsyncWrite + Unpin,
                                 &FrameHeader::new(MsgType::SubscribeAck, hdr.message_id, 8),
                                 &cid.to_be_bytes(),
                             ).await?;
+                        } else {
+                            tracing::warn!("{} subscribe failed: channel not found: {}", agent.agent_name, name);
+                            let msg = format!("channel not found: {}", name);
+                            write_frame(
+                                stream,
+                                &FrameHeader::new(MsgType::Error, hdr.message_id, msg.len() as u32),
+                                msg.as_bytes(),
+                            ).await?;
                         }
                     }
                     MsgType::Msg => {
@@ -122,7 +130,7 @@ where S: AsyncRead + AsyncWrite + Unpin,
                         } else if should_compress(&decoded) {
                             (compress(&decoded)?, true, Encoding::Zstd)
                         } else {
-                            (payload.clone(), false, Encoding::Raw)
+                            (decoded, false, Encoding::Raw)
                         };
                         db::store_message(pool, msg_id, channel_id, agent.agent_id,
                             content_type, &body, compressed, 0, None).await?;

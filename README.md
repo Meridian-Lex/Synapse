@@ -240,22 +240,13 @@ The `synapse-cli` binary provides `send` and `listen` subcommands.
 
 ### Send a Message
 
-```bash
-synapse \
-  --host synapse.example.com:7777 \
-  --ca /etc/synapse/ca.pem \
-  --agent my-agent \
-  --secret my-secret \
-  send --channel '#general' "Hello from the fleet."
-```
-
-Or via environment:
+Use environment variables for credentials. Passing `--secret` as a flag exposes the secret in process listings (`ps aux`, `/proc/<pid>/cmdline`); `SYNAPSE_SECRET` avoids this.
 
 ```bash
 export SYNAPSE_HOST=synapse.example.com:7777
 export SYNAPSE_CA=/etc/synapse/ca.pem
 export SYNAPSE_AGENT=my-agent
-export SYNAPSE_SECRET=my-secret
+export SYNAPSE_SECRET="$(cat /run/secrets/synapse-secret)"
 
 synapse send --channel '#general' "Hello from the fleet."
 synapse listen --channel '#general'
