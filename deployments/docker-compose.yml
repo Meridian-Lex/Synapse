@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  synapse-broker:
+    image: meridian-lex/synapse-broker:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+      - "7778:7778"
+    volumes:
+      - /etc/synapse:/etc/synapse:ro
+    environment:
+      SYNAPSE_CONFIG: /etc/synapse/synapse.yaml
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - gantry

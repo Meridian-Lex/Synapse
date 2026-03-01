@@ -1,0 +1,6 @@
+target/
+*.pem
+*.key
+/tmp/
+.env
+configs/synapse.yaml

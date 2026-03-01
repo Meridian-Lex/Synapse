@@ -1,0 +1,65 @@
+name: Tag Release
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  create-tag:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'master' && startsWith(github.event.pull_request.head.ref, 'version-bump/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get version from VERSION file
+        id: get_version
+        run: |
+          [ ! -f VERSION ] && echo "Error: VERSION file not found" && exit 1
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          [ -z "$VERSION" ] && echo "Error: VERSION file is empty" && exit 1
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || (echo "Error: VERSION must be SemVer (x.y.z), got: $VERSION" && exit 1)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Create and push git tag
+        id: create_tag
+        run: |
+          TAG_NAME="v${{ steps.get_version.outputs.version }}"
+
+          if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists, skipping"
+            echo "created=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME" || (echo "Error: Failed to create tag" && exit 1)
+          git push origin "$TAG_NAME"              || (echo "Error: Failed to push tag" && exit 1)
+
+          echo "Created and pushed tag $TAG_NAME"
+          echo "created=true" >> $GITHUB_OUTPUT
+
+      - name: Report tag creation
+        run: |
+          TAG_CREATED="${{ steps.create_tag.outputs.created }}"
+          TAG_NAME="v${{ steps.get_version.outputs.version }}"
+          STATUS=$([ "$TAG_CREATED" = "true" ] && echo "created and pushed" || echo "already exists, skipped")
+
+          {
+            echo "## Tag Release Summary"
+            echo "- **Version:** ${{ steps.get_version.outputs.version }}"
+            echo "- **Tag:** \`$TAG_NAME\` ($STATUS)"
+            echo "- **PR:** #${{ github.event.pull_request.number }}"
+          } >> $GITHUB_STEP_SUMMARY
