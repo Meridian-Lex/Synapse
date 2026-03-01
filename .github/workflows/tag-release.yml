@@ -30,6 +30,7 @@ jobs:
           [ ! -f VERSION ] && echo "Error: VERSION file not found" && exit 1
           VERSION=$(cat VERSION | tr -d '[:space:]')
           [ -z "$VERSION" ] && echo "Error: VERSION file is empty" && exit 1
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || (echo "Error: VERSION must be SemVer (x.y.z), got: $VERSION" && exit 1)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Version: ${VERSION}"
 
