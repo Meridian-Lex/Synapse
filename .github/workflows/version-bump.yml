@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [closed]
 
+concurrency:
+  group: version-bump-${{ github.repository }}-${{ github.event.pull_request.base.ref }}
+  cancel-in-progress: false
+
 jobs:
   bump-version:
     if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'master' && !startsWith(github.event.pull_request.head.ref, 'version-bump/')
