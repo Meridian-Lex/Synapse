@@ -40,6 +40,18 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&cfg.broker.listen).await?;
     tracing::info!("Synapse broker on {}", cfg.broker.listen);
 
+    // Periodic channel pruning — remove broadcast channels with no receivers
+    {
+        let router_prune = router.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                router_prune.prune_empty().await;
+            }
+        });
+    }
+
     let conn_limit = Arc::new(Semaphore::new(2048));
 
     loop {

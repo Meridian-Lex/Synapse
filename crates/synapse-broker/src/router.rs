@@ -19,4 +19,11 @@ impl Router {
             let _ = tx.send(frame);
         }
     }
+
+    /// Prune channels with no active receivers to prevent unbounded memory growth.
+    /// Call periodically (e.g. every 60s from the broker main loop).
+    pub async fn prune_empty(&self) {
+        self.channels.write().await
+            .retain(|_, tx| tx.receiver_count() > 0);
+    }
 }
