@@ -3,6 +3,7 @@ use serde::Serialize;
 use sqlx::PgPool;
 use synapse_proto::compression::decompress;
 use synapse_proto::frame::{Encoding, FrameHeader, MsgType, HEADER_LEN};
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct AgentContext {
@@ -67,7 +68,10 @@ pub async fn fetch_channel_list(pool: &PgPool, fleet_id: i64) -> Vec<ChannelInfo
     )
     .fetch_all(pool)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| {
+        warn!("webui: fetch_channel_list failed: {}", e);
+        vec![]
+    });
 
     rows.into_iter()
         .map(|r| ChannelInfo { id: r.id, name: r.name, fleet_name: r.fleet_name })
@@ -112,13 +116,39 @@ pub async fn fetch_history(pool: &PgPool, channel_id: i64, limit: i64) -> Vec<Me
         .collect()
 }
 
+/// Decode the sender agent UUID from a Dialogue frame payload.
+/// Payload layout: [0x01 content_type][16-byte sender UUID][UTF-8 body]
+fn decode_dialogue_payload(payload: &[u8]) -> Option<(uuid::Uuid, &str)> {
+    if payload.len() <= 17 || payload[0] != 0x01 {
+        return None;
+    }
+    let uuid_bytes: [u8; 16] = payload[1..17].try_into().ok()?;
+    let sender_uuid = uuid::Uuid::from_bytes(uuid_bytes);
+    let body = std::str::from_utf8(&payload[17..]).ok()?;
+    Some((sender_uuid, body))
+}
+
+/// Resolve agent UUID to name via DB lookup.
+async fn resolve_sender_name(pool: &PgPool, sender_uuid: uuid::Uuid) -> String {
+    sqlx::query_scalar!(
+        r#"SELECT name FROM agents WHERE agent_uuid = $1"#,
+        sender_uuid
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| sender_uuid.to_string())
+}
+
 /// Decode a raw broker frame to a displayable JSON string for the WebUI.
 /// Returns None if the frame is not a Dialogue message.
-pub fn frame_to_json(
+/// Performs a DB lookup to resolve the actual sender name from the frame's embedded UUID.
+pub async fn frame_to_json(
     frame:             &[u8],
+    pool:              &PgPool,
     active_channel_id: Option<i64>,
     channels:          &[ChannelInfo],
-    sender_name:       &str,
 ) -> Option<String> {
     if frame.len() < HEADER_LEN {
         return None;
@@ -133,10 +163,8 @@ pub fn frame_to_json(
         raw_payload.to_vec()
     };
 
-    if payload.len() <= 17 || payload[0] != 0x01 {
-        return None;
-    }
-    let body = std::str::from_utf8(&payload[17..]).ok()?;
+    let (sender_uuid, body) = decode_dialogue_payload(&payload)?;
+    let sender_name = resolve_sender_name(pool, sender_uuid).await;
 
     let channel_name = channels
         .iter()
@@ -149,6 +177,8 @@ pub fn frame_to_json(
         "channel": channel_name,
         "sender":  sender_name,
         "body":    body,
+        // Frame headers carry a u64 message_id, not a wall-clock timestamp.
+        // Receipt time is the best available approximation for live messages.
         "ts":      chrono::Utc::now().to_rfc3339(),
     }).to_string())
 }
@@ -170,7 +200,7 @@ pub async fn send_as_human(
 
     // message_id for frame header is a random u64
     let message_id: u64 = rand::thread_rng().gen();
-    // message_uuid in DB is BIGINT — use lower 63 bits to stay positive
+    // message_uuid in DB is BIGINT — use lower 63 bits to stay non-negative
     let message_uuid: i64 = (message_id & 0x7FFF_FFFF_FFFF_FFFF) as i64;
 
     let hdr = FrameHeader::new(MsgType::Msg, message_id, payload.len() as u32);
@@ -179,7 +209,9 @@ pub async fn send_as_human(
     frame.extend_from_slice(&hdr.to_bytes());
     frame.extend_from_slice(&payload);
 
-    // Persist to DB
+    // Persist and publish in a single transaction for atomicity
+    let mut tx = pool.begin().await?;
+
     sqlx::query!(
         r#"INSERT INTO messages
            (message_uuid, channel_id, sender_id, content_type, body, compressed, priority)
@@ -191,10 +223,12 @@ pub async fn send_as_human(
         body.as_bytes(),
         0i16
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
-    // Publish to all channel subscribers
+    tx.commit().await?;
+
+    // Publish to all channel subscribers after commit
     router.publish(channel_id, frame).await;
 
     Ok(())
@@ -208,26 +242,34 @@ pub async fn create_channel(
     fleet_id:    i64,
     creator_id:  i64,
 ) -> Result<ChannelInfo, anyhow::Error> {
+    let mut tx = pool.begin().await?;
+
     let row = sqlx::query!(
         r#"
         INSERT INTO channels (name, description, fleet_id, created_by)
         VALUES ($1, $2, $3, $4)
-        RETURNING id, name AS "name!"
+        RETURNING id, name
         "#,
         name,
         description,
         fleet_id,
         creator_id
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
 
     let fleet_name = sqlx::query_scalar!(
-        r#"SELECT name AS "name!" FROM fleets WHERE id = $1"#,
+        r#"SELECT name FROM fleets WHERE id = $1"#,
         fleet_id
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
 
-    Ok(ChannelInfo { id: row.id, name: row.name, fleet_name })
+    tx.commit().await?;
+
+    Ok(ChannelInfo {
+        id:         row.id,
+        name:       row.name,
+        fleet_name,
+    })
 }
