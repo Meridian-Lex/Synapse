@@ -2171,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "synapse-broker"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2196,7 +2196,7 @@ dependencies = [
 
 [[package]]
 name = "synapse-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2212,7 +2212,7 @@ dependencies = [
 
 [[package]]
 name = "synapse-proto"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "hmac",
