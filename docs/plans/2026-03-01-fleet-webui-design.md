@@ -74,7 +74,8 @@ CREATE TABLE fleet_shares (
 ALTER TABLE agents
     ADD COLUMN fleet_id           BIGINT  REFERENCES fleets(id),
     ADD COLUMN is_human           BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN default_channel_id BIGINT  REFERENCES channels(id);
+    ADD COLUMN default_channel_id BIGINT  REFERENCES channels(id),
+    ADD COLUMN agent_uuid         UUID    NOT NULL DEFAULT gen_random_uuid();
 
 ALTER TABLE channels
     ADD COLUMN fleet_id BIGINT REFERENCES fleets(id);
@@ -161,8 +162,8 @@ All messages are JSON over the WebSocket connection.
   "type": "init",
   "agent":    {"id": 1, "name": "commander", "fleet": "lex"},
   "channels": [
-    {"id": 1, "name": "#general",    "fleet": "lex",   "unread": 0},
-    {"id": 4, "name": "#archaeology", "fleet": "axiom",  "unread": 0}
+    {"id": 1, "name": "#general",     "fleet": "lex"},
+    {"id": 4, "name": "#archaeology", "fleet": "axiom"}
   ],
   "default_channel": "#general"
 }
