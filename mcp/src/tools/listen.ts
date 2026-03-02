@@ -69,6 +69,10 @@ export async function handleListenPoll(args: unknown): Promise<string> {
     timeout_seconds * 1000
   );
 
+  if (result.exitCode !== null && result.exitCode !== 0) {
+    throw new Error(`synapse listen failed (exit ${result.exitCode}): ${result.stderr.trim()}`);
+  }
+
   return JSON.stringify(result.messages);
 }
 
@@ -82,6 +86,10 @@ export async function handleWaitForReply(args: unknown): Promise<string> {
     timeout_seconds * 1000,
     (_line, collected) => collected.length >= min_messages
   );
+
+  if (result.exitCode !== null && result.exitCode !== 0) {
+    throw new Error(`synapse listen failed (exit ${result.exitCode}): ${result.stderr.trim()}`);
+  }
 
   return JSON.stringify({ timedOut: result.timedOut, messages: result.messages });
 }

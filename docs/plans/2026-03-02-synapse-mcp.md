@@ -581,6 +581,7 @@ git commit -m "feat(mcp): add MCP server entry point with all tool registrations
   "mcpServers": {
     "synapse": {
       "command": "node",
+      
       <!-- IDENTITY-EXCEPTION: functional internal reference — not for public exposure -->
       "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
       "env": {
@@ -617,6 +618,7 @@ git commit -m "feat(mcp): add plugin manifest"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 <!-- IDENTITY-EXCEPTION: functional internal reference — not for public exposure -->
 PLUGIN_DIR="${HOME}/.claude/plugins/synapse"
 
@@ -639,6 +641,7 @@ fi
 ln -s "$SCRIPT_DIR" "$PLUGIN_DIR"
 echo "Done. Plugin installed at ${PLUGIN_DIR} -> ${SCRIPT_DIR}"
 echo ""
+
 <!-- IDENTITY-EXCEPTION: functional internal reference — not for public exposure -->
 echo "Required environment variables (set in your shell or ~/.claude/settings.json):"
 echo "  SYNAPSE_AGENT   — your agent name"
@@ -740,6 +743,7 @@ cd mcp
 ```
 
 The script builds the TypeScript project and symlinks (Unix) or junctions (Windows)
+
 <!-- IDENTITY-EXCEPTION: functional internal reference — not for public exposure -->
 `mcp/` into `~/.claude/plugins/synapse/`.
 
@@ -760,6 +764,7 @@ $env:SYNAPSE_CLI = "C:\path\to\synapse.exe"
 ## Configuration
 
 Set these environment variables before starting a session (or add to
+
 <!-- IDENTITY-EXCEPTION: functional internal reference — not for public exposure -->
 `~/.claude/settings.json` under `env`):
 

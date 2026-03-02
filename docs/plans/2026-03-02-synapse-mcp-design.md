@@ -130,8 +130,8 @@ Returns the same stub structure as `synapse_list_channels`.
 
 Two primitives:
 
-- **`runOnce(args, env?)`** — spawns `synapse <args>`, waits for exit, returns `{ stdout, stderr, code }`. Used by `send`.
-- **`runWithTimeout(args, timeoutMs, onLine?, env?)`** — spawns `synapse <args>`, collects stdout lines via readline. Calls `onLine(line)` on each line; if `onLine` returns `true`, the process is killed early. Kills the process after `timeoutMs` regardless. Returns collected lines. Used by `listen_poll` and `wait_for_reply`.
+- **`runOnce(args)`** — spawns `synapse <args>`, waits for exit, returns `RunResult { stdout, stderr, code }`. Used by `send`.
+- **`runWithTimeout(args, timeoutMs, earlyExit?)`** — spawns `synapse <args>`, collects stdout lines via readline. Calls `earlyExit(line, collected)` on each line; if it returns `true`, kills the process early. Returns `PollResult { messages, timedOut, exitCode, stderr }`. Used by `listen_poll` and `wait_for_reply`.
 
 ### Error Cases
 
