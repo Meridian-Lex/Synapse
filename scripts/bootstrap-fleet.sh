@@ -20,12 +20,11 @@ PSQL="docker exec -i stratavore-postgres psql -U postgres -d synapse -v ON_ERROR
 
 echo "[bootstrap-fleet] Fleet='${FLEET_NAME}' Agent='${AGENT_NAME}' Channel='${DEFAULT_CHANNEL}'"
 
-$PSQL \
-  -v "fleet_name=${FLEET_NAME}" \
-  -v "agent_name=${AGENT_NAME}" \
-  -v "agent_secret=${AGENT_SECRET}" \
-  -v "channel_name=${DEFAULT_CHANNEL}" \
-  <<'SQL'
+# Feed agent_secret via psql stdin (\set meta-command) rather than -v argv
+# to avoid the value appearing in ps/proc listings of the psql child process.
+{
+  printf '\\set agent_secret %s\n' "${AGENT_SECRET}"
+  cat <<'SQL'
 DO $$
 DECLARE
   v_agent_id   BIGINT;
@@ -69,5 +68,9 @@ BEGIN
 END;
 $$;
 SQL
+} | $PSQL \
+  -v "fleet_name=${FLEET_NAME}" \
+  -v "agent_name=${AGENT_NAME}" \
+  -v "channel_name=${DEFAULT_CHANNEL}"
 
 echo "[bootstrap-fleet] Complete."

@@ -116,10 +116,10 @@ The HMAC is computed over the 32-byte nonce using the agent's pre-shared secret.
 
 #### Message Payload Format
 
-Msg payloads carry a 1-byte content type discriminator followed by an 8-byte channel ID and 8-byte millisecond timestamp:
+Msg payloads carry a 1-byte content type discriminator followed by an 8-byte channel ID and 8-byte millisecond timestamp. Multi-byte numeric fields are big-endian, matching the frame header.
 
 ```text
-[content_type: 1] [channel_id: 8] [timestamp_ms: 8] [body: ...]
+[content_type: 1] [channel_id: 8 BE] [timestamp_ms: 8 BE] [body: ...]
 ```
 
 | Content Type | Encoding |
@@ -137,6 +137,11 @@ Msg payloads carry a 1-byte content type discriminator followed by an 8-byte cha
 - PostgreSQL (provided via Gantry or external)
 - Redis (provided via Gantry or external)
 - TLS certificate and key for the broker
+- CA certificate (PEM) for client TLS verification — clients pass this via `--ca` or `SYNAPSE_CA`
+
+**Obtaining the CA certificate:**
+- *Self-managed deployments*: use `scripts/gen-lex-certs.sh` (available in the Gantry repo) to generate a fleet CA and sign the broker certificate. Distribute `ca.crt` to clients; place the broker cert/key at the paths referenced in your config.
+- *Public CA deployments*: point `SYNAPSE_CA` at your system CA bundle (`/etc/ssl/certs/ca-certificates.crt` on Debian/Ubuntu). Clients verify the broker against the public CA automatically.
 
 ### Configuration
 
@@ -152,7 +157,7 @@ broker:
   tls_cert: /etc/synapse/cert.pem
   tls_key: /etc/synapse/key.pem
   session_ttl_seconds: 604800  # 7 days (default)
-  max_frame_bytes: 4194304
+  max_frame_bytes: 4194304  # 4 MiB; enforced on the decompressed payload size (prevents zip-bomb expansion)
 
 postgres:
   url: "postgresql://synapse:<password>@localhost:5432/synapse"
@@ -241,7 +246,7 @@ The `synapse-cli` binary provides `send` and `listen` subcommands.
 
 ### Send a Message
 
-Use environment variables for credentials. Passing `--secret` as a flag exposes the secret in process listings (`ps aux`, `/proc/<pid>/cmdline`); `SYNAPSE_SECRET` reduces this exposure by keeping the value out of argv. Note that environment variables remain readable by privileged or local users via `/proc/<pid>/environ`; for stronger isolation consider a secrets manager or file with restricted permissions.
+Use environment variables for credentials. Passing `--secret` as a flag exposes the secret in process listings (`ps aux`, `/proc/<pid>/cmdline`); `SYNAPSE_SECRET` reduces this exposure by keeping the value out of argv. Note that environment variables remain readable by privileged or local users via `/proc/<pid>/environ`; for stronger isolation, consider a secrets manager or file with restricted permissions.
 
 ```bash
 export SYNAPSE_HOST=synapse.example.com:7777
@@ -322,9 +327,9 @@ For agents implementing the protocol directly rather than using `synapse-cli`:
 
 1. **Import `synapse-proto`** as a Cargo dependency (path or future crate registry).
 2. Use `synapse_proto::auth::HelloPayload` for the handshake.
-3. Use `synapse_proto::frame::FrameHeader` for framing all messages.
-4. Use `synapse_proto::message::MsgPayload` for encoding message bodies.
-5. Use `synapse_proto::codec::{read_frame, write_frame}` for the async I/O layer.
+3. Frame all messages with `synapse_proto::frame::FrameHeader`.
+4. Encode message bodies with `synapse_proto::message::MsgPayload`.
+5. Handle async I/O with `synapse_proto::codec::{read_frame, write_frame}`.
 6. Respond to `Ping` with `Pong`. Ignore unknown message types gracefully.
 7. The frame parser rejects at the header boundary — a malformed header closes the connection immediately.
 
