@@ -27,9 +27,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  let text: string;
-  let isError = false;
   try {
+    let text: string;
     switch (name) {
       case "synapse_send_message":        text = await handleSendMessage(args); break;
       case "synapse_listen_poll":         text = await handleListenPoll(args); break;
@@ -42,14 +41,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           isError: true,
         };
     }
-    // Detect known error response patterns from handlers
-    if (
-      text.startsWith("Missing required") ||
-      text.startsWith("Send failed") ||
-      text.startsWith("synapse CLI not found")
-    ) {
-      isError = true;
-    }
+    // Detect send failure reported as a string (non-zero CLI exit code).
+    const isError = text.startsWith("Send failed");
+    return { content: [{ type: "text" as const, text }], isError };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
@@ -57,8 +51,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     };
   }
-
-  return { content: [{ type: "text" as const, text }], isError };
 });
 
 const transport = new StdioServerTransport();

@@ -21,7 +21,7 @@ export const sendMessageTool = {
 
 export async function handleSendMessage(args: unknown): Promise<string> {
   const credErr = validateCredentials();
-  if (credErr) return JSON.stringify({ error: credErr });
+  if (credErr) throw new Error(credErr);
 
   const { channel, message } = SendMessageSchema.parse(args);
   const result = await runOnce(["send", "--channel", channel, message]);

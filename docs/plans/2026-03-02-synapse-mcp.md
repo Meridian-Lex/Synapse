@@ -820,8 +820,6 @@ Expected: JSON array containing the message sent.
 Call `synapse_wait_for_reply` with `timeout_seconds: 10`, then send a message
 from another agent. Expected: early exit with `{ timedOut: false, messages: [...] }`.
 
-```
-
 **Step 2: Commit**
 
 ```bash
@@ -855,11 +853,13 @@ mcp-build:
 **Step 3: Add `mcp-build` to the `all` target**
 
 Find the line:
+
 ```makefile
 all: broker cli-linux cli-windows
 ```
 
 Change to:
+
 ```makefile
 all: broker cli-linux cli-windows mcp-build
 ```

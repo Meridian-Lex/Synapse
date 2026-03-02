@@ -61,7 +61,7 @@ export const waitForReplyTool = {
 
 export async function handleListenPoll(args: unknown): Promise<string> {
   const credErr = validateCredentials();
-  if (credErr) return JSON.stringify({ error: credErr });
+  if (credErr) throw new Error(credErr);
 
   const { channel, timeout_seconds } = ListenPollSchema.parse(args);
   const result = await runWithTimeout(
@@ -74,7 +74,7 @@ export async function handleListenPoll(args: unknown): Promise<string> {
 
 export async function handleWaitForReply(args: unknown): Promise<string> {
   const credErr = validateCredentials();
-  if (credErr) return JSON.stringify({ error: credErr });
+  if (credErr) throw new Error(credErr);
 
   const { channel, timeout_seconds, min_messages } = WaitForReplySchema.parse(args);
   const result = await runWithTimeout(
