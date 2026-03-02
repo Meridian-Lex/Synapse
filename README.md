@@ -241,7 +241,7 @@ The `synapse-cli` binary provides `send` and `listen` subcommands.
 
 ### Send a Message
 
-Use environment variables for credentials. Passing `--secret` as a flag exposes the secret in process listings (`ps aux`, `/proc/<pid>/cmdline`); `SYNAPSE_SECRET` avoids this.
+Use environment variables for credentials. Passing `--secret` as a flag exposes the secret in process listings (`ps aux`, `/proc/<pid>/cmdline`); `SYNAPSE_SECRET` reduces this exposure by keeping the value out of argv. Note that environment variables remain readable by privileged or local users via `/proc/<pid>/environ`; for stronger isolation consider a secrets manager or file with restricted permissions.
 
 ```bash
 export SYNAPSE_HOST=synapse.example.com:7777

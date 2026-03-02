@@ -44,7 +44,11 @@ async fn run_inner<S>(
 ) -> Result<()>
 where S: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut ticker = interval(Duration::from_secs(5));
+    let heartbeat_secs = std::env::var("SYNAPSE_HEARTBEAT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(5);
+    let mut ticker = interval(Duration::from_secs(heartbeat_secs));
 
     // Outbound channel: subscription forwarder tasks send raw frames here,
     // the select loop writes them to the client stream.
@@ -113,8 +117,16 @@ where S: AsyncRead + AsyncWrite + Unpin,
                     MsgType::Msg => {
                         // Decompress before decoding — sender may have compressed large payloads.
                         // Move payload into decoded (zstd path) or use directly (raw path).
+                        // Enforce max_frame_bytes on the decompressed size to prevent zip-bomb expansion.
                         let (decoded, original_payload) = if hdr.encoding == Encoding::Zstd {
-                            (decompress(&payload)?, Some(payload))
+                            let d = decompress(&payload)?;
+                            if d.len() as u64 > u64::from(max_frame_bytes) {
+                                anyhow::bail!(
+                                    "decompressed frame size {} exceeds max_frame_bytes {}",
+                                    d.len(), max_frame_bytes
+                                );
+                            }
+                            (d, Some(payload))
                         } else {
                             (payload, None)
                         };
@@ -145,6 +157,7 @@ where S: AsyncRead + AsyncWrite + Unpin,
                             content_type, &body, compressed, 0, None).await?;
                         let mut route_hdr = FrameHeader::new(MsgType::Msg, hdr.message_id, body.len() as u32);
                         route_hdr.encoding = enc;
+                        route_hdr.flags.compressed = compressed;
                         let mut frame = route_hdr.to_bytes().to_vec();
                         frame.extend_from_slice(&body);
                         router.publish(channel_id, frame.clone()).await;
