@@ -87,14 +87,17 @@ export async function runWithTimeout(
     const messages: string[] = [];
     let stderr = "";
     let settled = false;
+    let firstLine = true;
 
-    // Declare timer variable before error handler so the error handler can clear it.
+    // Declare timer and rl before error handler so the handler can reference them.
     let timer: ReturnType<typeof setTimeout>;
+    let rl: ReturnType<typeof createInterface>;
 
     child.on("error", (err: NodeJS.ErrnoException) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      rl?.close();
       if (err.code === "ENOENT") {
         reject(new Error(
           `synapse CLI not found. Set SYNAPSE_CLI or add synapse to PATH. ` +
@@ -107,12 +110,13 @@ export async function runWithTimeout(
 
     child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
 
-    const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
+    rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
 
     rl.on("line", (line: string) => {
       if (settled) return;
-      // Filter the initial status line from `synapse listen`
-      if (line.startsWith("Listening on ")) return;
+      // Filter the initial status line emitted once by `synapse listen` at startup.
+      if (firstLine && line.startsWith("Listening on ")) { firstLine = false; return; }
+      firstLine = false;
       if (line === "") return;
       messages.push(line);
       if (onLine && onLine(line, messages)) {
