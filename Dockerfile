@@ -8,6 +8,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/synapse-proto/Cargo.toml crates/synapse-proto/
 COPY crates/synapse-broker/Cargo.toml crates/synapse-broker/
 COPY crates/synapse-cli/Cargo.toml crates/synapse-cli/
+RUN mkdir -p crates/synapse-proto/src && echo "" > crates/synapse-proto/src/lib.rs \
+ && mkdir -p crates/synapse-broker/src && echo "fn main(){}" > crates/synapse-broker/src/main.rs \
+ && mkdir -p crates/synapse-cli/src && echo "fn main(){}" > crates/synapse-cli/src/main.rs
 RUN cargo fetch
 
 # Copy full source and build
