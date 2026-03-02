@@ -298,7 +298,7 @@ rustup target add x86_64-pc-windows-gnu  # for Windows cross-compile
 
 ## WebUI
 
-When `webui.enabled: true`, the broker serves an interactive fleet chat interface on port 7778. Access it via `https://<host>/` with TLS termination at a reverse proxy (e.g. nginx) that forwards to port 7778 — this is the required path for secure session-cookie behaviour. Direct `http://` access to port 7778 is only appropriate for isolated internal networks where transport security is handled at the network layer.
+When `webui.enabled: true`, the broker serves an interactive fleet chat interface on port 7778. Access it via `https://<host>/` with TLS termination at a reverse proxy (e.g. nginx) that forwards to port 7778. TLS termination is required: the WebUI sets session cookies with the `Secure` flag, so they will not be sent by browsers over plain HTTP connections.
 
 The WebUI provides:
 

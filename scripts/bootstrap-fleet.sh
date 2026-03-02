@@ -3,10 +3,10 @@
 # Usage: FLEET_SECRET=<secret> ./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> [default-channel]
 # Example: FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)" ./scripts/bootstrap-fleet.sh lex commander '#general'
 #
-# The secret is read from FLEET_SECRET rather than a positional argument so it does
-# not appear in this script's process listing. Note: the secret is still passed to
-# psql via -v, which may appear in the psql child process argv. For production use
-# consider restricting host access or using a secrets manager.
+# The secret is read from FLEET_SECRET and fed to psql via stdin (\set meta-command),
+# so it does not appear in this script's process listing or in the psql child-process
+# argv. For stronger isolation consider a secrets manager or file with restricted
+# permissions (e.g. chmod 600).
 set -euo pipefail
 
 FLEET_NAME="${1:?Usage: FLEET_SECRET=<secret> $0 <fleet-name> <agent-name> [default-channel]}"

@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_proto::{
     codec::{read_frame, write_frame},
-    compression::{compress, decompress, should_compress},
+    compression::{compress, decompress_bounded, should_compress},
     frame::{Encoding, FrameHeader, MsgType},
     message::MsgPayload,
 };
@@ -47,7 +47,8 @@ where S: AsyncRead + AsyncWrite + Unpin,
     let heartbeat_secs = std::env::var("SYNAPSE_HEARTBEAT_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(5);
+        .unwrap_or(5)
+        .max(1);  // 0 would panic; floor at 1s
     let mut ticker = interval(Duration::from_secs(heartbeat_secs));
 
     // Outbound channel: subscription forwarder tasks send raw frames here,
@@ -119,13 +120,9 @@ where S: AsyncRead + AsyncWrite + Unpin,
                         // Move payload into decoded (zstd path) or use directly (raw path).
                         // Enforce max_frame_bytes on the decompressed size to prevent zip-bomb expansion.
                         let (decoded, original_payload) = if hdr.encoding == Encoding::Zstd {
-                            let d = decompress(&payload)?;
-                            if d.len() as u64 > u64::from(max_frame_bytes) {
-                                anyhow::bail!(
-                                    "decompressed frame size {} exceeds max_frame_bytes {}",
-                                    d.len(), max_frame_bytes
-                                );
-                            }
+                            // decompress_bounded enforces the limit *during* decompression,
+                            // preventing zip-bomb memory exhaustion before a size check runs.
+                            let d = decompress_bounded(&payload, max_frame_bytes as usize)?;
                             (d, Some(payload))
                         } else {
                             (payload, None)
