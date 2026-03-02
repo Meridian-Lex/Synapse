@@ -27,7 +27,7 @@ export async function handleSendMessage(args: unknown): Promise<string> {
   const result = await runOnce(["send", "--channel", channel, message]);
 
   if (result.code !== 0) {
-    return `Send failed (exit ${result.code}): ${result.stderr || result.stdout || "unknown error"}`;
+    throw new Error(`Send failed (exit ${result.code}): ${result.stderr || result.stdout || "unknown error"}`);
   }
 
   return result.stdout || "Delivered.";

@@ -898,7 +898,7 @@ Expected: response contains all 5 tool names.
 **Step 3: Push branch**
 
 ```bash
-git push origin fix/broker-decompress-before-decode
+git push origin feat/synapse-mcp
 ```
 
-**Step 4: Done — open PR if this is the right branch, or note that mcp/ work can be cherry-picked to its own branch.**
+**Step 4: Open a PR from `feat/synapse-mcp` → `master`.**

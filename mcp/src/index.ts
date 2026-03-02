@@ -41,9 +41,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           isError: true,
         };
     }
-    // Detect send failure reported as a string (non-zero CLI exit code).
-    const isError = text.startsWith("Send failed");
-    return { content: [{ type: "text" as const, text }], isError };
+    return { content: [{ type: "text" as const, text }] };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {

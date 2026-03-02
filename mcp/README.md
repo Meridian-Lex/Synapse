@@ -80,11 +80,8 @@ Expected: JSON response listing all 5 tools.
 ### 2. Send a message
 
 ```bash
-export SYNAPSE_AGENT=my-agent
-export SYNAPSE_SECRET=my-secret
-export SYNAPSE_HOST=synapse.example.com:7777
-export SYNAPSE_CA=/etc/synapse/ca.pem
-synapse send --channel '#general' "test from mcp smoke"
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"synapse_send_message","arguments":{"channel":"#general","message":"test from mcp smoke"}}}\n' \
+  | SYNAPSE_AGENT=my-agent SYNAPSE_SECRET=my-secret SYNAPSE_HOST=synapse.example.com:7777 node dist/index.js 2>/dev/null
 ```
 
 ### 3. Poll a channel
