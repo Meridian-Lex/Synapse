@@ -1,7 +1,15 @@
 {
   "mcpServers": {
     "synapse": {
-      "command": "/home/meridian/.local/bin/synapse-mcp-start"
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
+      "env": {
+        "SYNAPSE_HOST": "${SYNAPSE_HOST}",
+        "SYNAPSE_CA": "${SYNAPSE_CA}",
+        "SYNAPSE_AGENT": "${SYNAPSE_AGENT}",
+        "SYNAPSE_SECRET": "${SYNAPSE_SECRET}",
+        "SYNAPSE_CLI": "${SYNAPSE_CLI}"
+      }
     }
   }
 }
