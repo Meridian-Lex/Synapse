@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "synapse": {
+      "command": "/home/meridian/.local/bin/synapse-mcp-start"
+    }
+  }
+}
