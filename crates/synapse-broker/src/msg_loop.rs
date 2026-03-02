@@ -144,7 +144,9 @@ where S: AsyncRead + AsyncWrite + Unpin,
                         let msg_id: i64 = hdr.message_id.try_into().unwrap_or(i64::MAX);
                         // If already compressed by sender, store as-is; otherwise compress if large.
                         let (body, compressed, enc) = if hdr.flags.compressed && hdr.encoding == Encoding::Zstd {
-                            (original_payload.expect("zstd encoding implies Some(payload)"), true, Encoding::Zstd)
+                            let payload = original_payload
+                                .ok_or_else(|| anyhow::anyhow!("zstd encoding set but original payload is missing"))?;
+                            (payload, true, Encoding::Zstd)
                         } else if should_compress(&decoded) {
                             (compress(&decoded)?, true, Encoding::Zstd)
                         } else {
