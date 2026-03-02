@@ -10,7 +10,7 @@ pub enum MsgType {
     Hello = 0x01, Challenge = 0x02, HelloResp = 0x03, HelloAck = 0x04, HelloErr = 0x05,
     Msg = 0x10, MsgAck = 0x11, MsgEdit = 0x12, MsgDelete = 0x13,
     Subscribe = 0x20, Unsubscribe = 0x21, ChanCreate = 0x22,
-    ChanInfo = 0x23, ChanList = 0x24, ChanHistory = 0x25,
+    ChanInfo = 0x23, ChanList = 0x24, ChanHistory = 0x25, SubscribeAck = 0x26,
     Presence = 0x30, PresenceReq = 0x31, Typing = 0x32,
     Ping = 0x40, Pong = 0x41, Sys = 0x50, Error = 0x51, Bye = 0x60,
 }
@@ -26,7 +26,8 @@ impl TryFrom<u8> for MsgType {
             0x13 => Ok(Self::MsgDelete), 0x20 => Ok(Self::Subscribe),
             0x21 => Ok(Self::Unsubscribe), 0x22 => Ok(Self::ChanCreate),
             0x23 => Ok(Self::ChanInfo),  0x24 => Ok(Self::ChanList),
-            0x25 => Ok(Self::ChanHistory), 0x30 => Ok(Self::Presence),
+            0x25 => Ok(Self::ChanHistory), 0x26 => Ok(Self::SubscribeAck),
+            0x30 => Ok(Self::Presence),
             0x31 => Ok(Self::PresenceReq), 0x32 => Ok(Self::Typing),
             0x40 => Ok(Self::Ping),      0x41 => Ok(Self::Pong),
             0x50 => Ok(Self::Sys),       0x51 => Ok(Self::Error),
@@ -142,7 +143,7 @@ mod tests {
             MsgType::HelloAck, MsgType::HelloErr, MsgType::Msg,
             MsgType::MsgAck, MsgType::MsgEdit, MsgType::MsgDelete,
             MsgType::Subscribe, MsgType::Unsubscribe, MsgType::ChanCreate,
-            MsgType::ChanInfo, MsgType::ChanList, MsgType::ChanHistory,
+            MsgType::ChanInfo, MsgType::ChanList, MsgType::ChanHistory, MsgType::SubscribeAck,
             MsgType::Presence, MsgType::PresenceReq, MsgType::Typing,
             MsgType::Ping, MsgType::Pong, MsgType::Sys, MsgType::Error, MsgType::Bye,
         ];

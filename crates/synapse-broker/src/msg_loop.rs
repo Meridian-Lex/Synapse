@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_proto::{
     codec::{read_frame, write_frame},
-    compression::{compress, should_compress},
+    compression::{compress, decompress_bounded, should_compress},
     frame::{Encoding, FrameHeader, MsgType},
     message::MsgPayload,
 };
@@ -44,7 +44,12 @@ async fn run_inner<S>(
 ) -> Result<()>
 where S: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut ticker = interval(Duration::from_secs(15));
+    let heartbeat_secs = std::env::var("SYNAPSE_HEARTBEAT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(5)
+        .max(1);  // 0 would panic; floor at 1s
+    let mut ticker = interval(Duration::from_secs(heartbeat_secs));
 
     // Outbound channel: subscription forwarder tasks send raw frames here,
     // the select loop writes them to the client stream.
@@ -93,25 +98,69 @@ where S: AsyncRead + AsyncWrite + Unpin,
                                 }
                             });
                             tracing::info!("{} subscribed to {}", agent.agent_name, name);
+                            // Reply with resolved channel_id so the client can address
+                            // Msg frames to the correct channel without guessing.
+                            write_frame(
+                                stream,
+                                &FrameHeader::new(MsgType::SubscribeAck, hdr.message_id, 8),
+                                &cid.to_be_bytes(),
+                            ).await?;
+                        } else {
+                            tracing::warn!("{} subscribe failed: channel not found: {}", agent.agent_name, name);
+                            let msg = format!("channel not found: {}", name);
+                            write_frame(
+                                stream,
+                                &FrameHeader::new(MsgType::Error, hdr.message_id, msg.len() as u32),
+                                msg.as_bytes(),
+                            ).await?;
                         }
                     }
                     MsgType::Msg => {
-                        let msg = MsgPayload::decode(&payload)?;
+                        // Decompress before decoding — sender may have compressed large payloads.
+                        // Move payload into decoded (zstd path) or use directly (raw path).
+                        // Enforce max_frame_bytes on the decompressed size to prevent zip-bomb expansion.
+                        let (decoded, original_payload) = if hdr.encoding == Encoding::Zstd {
+                            // decompress_bounded enforces the limit *during* decompression,
+                            // preventing zip-bomb memory exhaustion before a size check runs.
+                            let d = decompress_bounded(&payload, max_frame_bytes as usize)?;
+                            (d, Some(payload))
+                        } else {
+                            (payload, None)
+                        };
+                        // Validate encoding/compression flag consistency in both directions.
+                        if hdr.flags.compressed && hdr.encoding != Encoding::Zstd {
+                            anyhow::bail!(
+                                "invalid frame: compressed flag set with non-zstd encoding {:?}",
+                                hdr.encoding
+                            );
+                        }
+                        if hdr.encoding == Encoding::Zstd && !hdr.flags.compressed {
+                            anyhow::bail!(
+                                "invalid frame: zstd encoding set without compressed flag"
+                            );
+                        }
+                        let msg = MsgPayload::decode(&decoded)?;
                         let (channel_id, content_type) = match &msg {
                             MsgPayload::Dialogue { channel_id, .. } => (*channel_id as i64, 1i16),
                             MsgPayload::Work     { channel_id, .. } => (*channel_id as i64, 2i16),
                         };
                         // Minor fix: safe u64 -> i64 cast instead of bare `as i64`.
                         let msg_id: i64 = hdr.message_id.try_into().unwrap_or(i64::MAX);
-                        let (body, compressed, enc) = if should_compress(&payload) {
-                            (compress(&payload)?, true, Encoding::Zstd)
+                        // If already compressed by sender, store as-is; otherwise compress if large.
+                        let (body, compressed, enc) = if hdr.flags.compressed && hdr.encoding == Encoding::Zstd {
+                            let payload = original_payload
+                                .ok_or_else(|| anyhow::anyhow!("zstd encoding set but original payload is missing"))?;
+                            (payload, true, Encoding::Zstd)
+                        } else if should_compress(&decoded) {
+                            (compress(&decoded)?, true, Encoding::Zstd)
                         } else {
-                            (payload.clone(), false, Encoding::Raw)
+                            (decoded, false, Encoding::Raw)
                         };
                         db::store_message(pool, msg_id, channel_id, agent.agent_id,
                             content_type, &body, compressed, 0, None).await?;
                         let mut route_hdr = FrameHeader::new(MsgType::Msg, hdr.message_id, body.len() as u32);
                         route_hdr.encoding = enc;
+                        route_hdr.flags.compressed = compressed;
                         let mut frame = route_hdr.to_bytes().to_vec();
                         frame.extend_from_slice(&body);
                         router.publish(channel_id, frame.clone()).await;

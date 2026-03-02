@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Idempotent fleet bootstrap: create fleet, human operator agent, and default channel.
-# Usage: ./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> <secret> [default-channel]
-# Example: ./scripts/bootstrap-fleet.sh lex commander mysecret '#general'
+# Usage: FLEET_SECRET=<secret> ./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> [default-channel]
+# Example: FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)" ./scripts/bootstrap-fleet.sh lex commander '#general'
+#
+# The secret is read from FLEET_SECRET and fed to psql via stdin (\set meta-command),
+# so it does not appear in this script's process listing or in the psql child-process
+# argv. For stronger isolation consider a secrets manager or file with restricted
+# permissions (e.g. chmod 600).
 set -euo pipefail
 
-FLEET_NAME="${1:?Usage: $0 <fleet-name> <agent-name> <secret> [default-channel]}"
+FLEET_NAME="${1:?Usage: FLEET_SECRET=<secret> $0 <fleet-name> <agent-name> [default-channel]}"
 AGENT_NAME="${2:?}"
-AGENT_SECRET="${3:?}"
-DEFAULT_CHANNEL="${4:-#general}"
+AGENT_SECRET="${FLEET_SECRET:?FLEET_SECRET environment variable must be set}"
+DEFAULT_CHANNEL="${3:-#general}"
 
 # psql -v sets named variables; ::'text' applies proper quoting in the SQL,
 # preventing injection regardless of what the shell variables contain.
@@ -15,12 +20,11 @@ PSQL="docker exec -i stratavore-postgres psql -U postgres -d synapse -v ON_ERROR
 
 echo "[bootstrap-fleet] Fleet='${FLEET_NAME}' Agent='${AGENT_NAME}' Channel='${DEFAULT_CHANNEL}'"
 
-$PSQL \
-  -v "fleet_name=${FLEET_NAME}" \
-  -v "agent_name=${AGENT_NAME}" \
-  -v "agent_secret=${AGENT_SECRET}" \
-  -v "channel_name=${DEFAULT_CHANNEL}" \
-  <<'SQL'
+# Feed agent_secret via psql stdin (\set meta-command) rather than -v argv
+# to avoid the value appearing in ps/proc listings of the psql child process.
+{
+  printf '\\set agent_secret %s\n' "${AGENT_SECRET}"
+  cat <<'SQL'
 DO $$
 DECLARE
   v_agent_id   BIGINT;
@@ -64,5 +68,9 @@ BEGIN
 END;
 $$;
 SQL
+} | $PSQL \
+  -v "fleet_name=${FLEET_NAME}" \
+  -v "agent_name=${AGENT_NAME}" \
+  -v "channel_name=${DEFAULT_CHANNEL}"
 
 echo "[bootstrap-fleet] Complete."

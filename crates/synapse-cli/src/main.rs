@@ -27,28 +27,26 @@ enum Cmd {
     },
 }
 
-/// Send a SUBSCRIBE frame and return the broker-resolved channel ID.
-/// Payload is the UTF-8 channel name; broker looks up channels table.
+/// Send a SUBSCRIBE frame and return the broker-resolved channel ID via SubscribeAck.
 async fn subscribe_channel<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
     stream: &mut S,
     channel: &str,
 ) -> Result<u64> {
-    // Try numeric parse first — broker accepts channel IDs directly if already known
-    if let Ok(id) = channel.trim_start_matches('#').parse::<u64>() {
-        let payload = channel.as_bytes().to_vec();
-        write_frame(stream, &FrameHeader::new(MsgType::Subscribe, rand::random(), payload.len() as u32), &payload).await?;
-        return Ok(id);
-    }
-    // Send SUBSCRIBE with channel name; broker resolves to ID
     let payload = channel.as_bytes().to_vec();
     write_frame(stream, &FrameHeader::new(MsgType::Subscribe, rand::random(), payload.len() as u32), &payload).await?;
-    // For now derive a fallback from the channel name — #general = 1
-    // TODO: add SubscribeAck response to protocol for authoritative ID
-    let id: u64 = match channel {
-        "#general" | "general" => 1,
-        _ => 1,
-    };
-    Ok(id)
+    // Read SubscribeAck — broker replies with the resolved channel_id (8 bytes BE).
+    // 10-second timeout guards against broker silence (e.g. network partition or unknown channel).
+    let (ack, ack_payload) = tokio::time::timeout(
+        tokio::time::Duration::from_secs(10),
+        read_frame(stream),
+    ).await
+    .map_err(|_| anyhow::anyhow!("timed out waiting for SubscribeAck on channel '{}'", channel))??;
+    if ack.msg_type == MsgType::Error {
+        anyhow::bail!("broker error: {}", String::from_utf8_lossy(&ack_payload));
+    }
+    anyhow::ensure!(ack.msg_type == MsgType::SubscribeAck, "expected SubscribeAck, got {:?}", ack.msg_type);
+    anyhow::ensure!(ack_payload.len() == 8, "SubscribeAck payload wrong length");
+    Ok(u64::from_be_bytes(ack_payload.try_into().unwrap()))
 }
 
 #[tokio::main]
