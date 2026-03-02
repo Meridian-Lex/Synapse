@@ -19,7 +19,7 @@ function resolveBin(): string {
   return process.env.SYNAPSE_CLI ?? "synapse";
 }
 
-/** Build child process env — passes all SYNAPSE_* vars through. */
+/** Build child process env — passes through the full process environment. */
 function buildEnv(): NodeJS.ProcessEnv {
   return { ...process.env };
 }

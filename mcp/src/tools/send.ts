@@ -12,8 +12,8 @@ export const sendMessageTool = {
   inputSchema: {
     type: "object" as const,
     properties: {
-      channel: { type: "string", description: "Channel name, e.g. #general" },
-      message: { type: "string", description: "Message body to send" },
+      channel: { type: "string", description: "Channel name, e.g. #general", minLength: 1 },
+      message: { type: "string", description: "Message body to send", minLength: 1 },
     },
     required: ["channel", "message"],
   },
