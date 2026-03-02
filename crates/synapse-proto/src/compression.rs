@@ -16,7 +16,7 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, ProtoError> {
 /// size would exceed `max_bytes`, preventing zip-bomb memory exhaustion.
 pub fn decompress_bounded(data: &[u8], max_bytes: usize) -> Result<Vec<u8>, ProtoError> {
     use std::io::Read;
-    let mut decoder = zstd::Decoder::new(data)
+    let decoder = zstd::Decoder::new(data)
         .map_err(|e| ProtoError::DecompressFailed(e.to_string()))?;
     let mut out = Vec::new();
     // Read at most max_bytes + 1 so we can detect overflow without full decompression.
