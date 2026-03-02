@@ -11,8 +11,8 @@ export const WaitForReplySchema = z.object({
   channel: z.string().describe("Channel name, e.g. #general"),
   timeout_seconds: z.number().int().min(1).max(300).default(30)
     .describe("Maximum time to wait for replies (default 30s)"),
-  min_messages: z.number().int().min(1).default(1)
-    .describe("Exit early once this many messages are received (default 1)"),
+  min_messages: z.number().int().min(1).max(1000).default(1)
+    .describe("Exit early once this many messages are received (default 1, max 1000)"),
 });
 
 export const listenPollTool = {
@@ -61,7 +61,7 @@ export const waitForReplyTool = {
 
 export async function handleListenPoll(args: unknown): Promise<string> {
   const credErr = validateCredentials();
-  if (credErr) return credErr;
+  if (credErr) return JSON.stringify({ error: credErr });
 
   const { channel, timeout_seconds } = ListenPollSchema.parse(args);
   const result = await runWithTimeout(
@@ -74,7 +74,7 @@ export async function handleListenPoll(args: unknown): Promise<string> {
 
 export async function handleWaitForReply(args: unknown): Promise<string> {
   const credErr = validateCredentials();
-  if (credErr) return credErr;
+  if (credErr) return JSON.stringify({ error: credErr });
 
   const { channel, timeout_seconds, min_messages } = WaitForReplySchema.parse(args);
   const result = await runWithTimeout(

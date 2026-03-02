@@ -29,7 +29,8 @@ if (Test-Path $PluginDir) {
 }
 
 cmd /c "mklink /J `"$PluginDir`" `"$ScriptDir`"" | Out-Null
-Write-Host "Done. Plugin installed at $PluginDir -> $ScriptDir"
+if ($LASTEXITCODE -ne 0) { throw "mklink failed with exit code $LASTEXITCODE" }
+Write-Output "Done. Plugin installed at $PluginDir -> $ScriptDir"
 Write-Output ""
 Write-Output "Required environment variables:"
 Write-Output "  SYNAPSE_AGENT   -- your agent name"

@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # IDENTITY-EXCEPTION: functional internal reference — not for public exposure
 PLUGIN_DIR="${HOME}/.claude/plugins/synapse"
 
+command -v npm >/dev/null 2>&1 || { echo "ERROR: npm not found in PATH. Install Node.js first."; exit 1; }
+
 echo "Building synapse-mcp..."
 cd "$SCRIPT_DIR"
 npm ci
@@ -16,6 +18,9 @@ mkdir -p "$(dirname "$PLUGIN_DIR")"
 if [ -L "$PLUGIN_DIR" ]; then
   echo "Removing existing symlink at ${PLUGIN_DIR}"
   rm "$PLUGIN_DIR"
+elif [ -f "$PLUGIN_DIR" ]; then
+  echo "ERROR: ${PLUGIN_DIR} exists and is a regular file. Remove it manually before installing."
+  exit 1
 elif [ -d "$PLUGIN_DIR" ]; then
   echo "ERROR: ${PLUGIN_DIR} exists and is not a symlink. Remove it manually before installing."
   exit 1

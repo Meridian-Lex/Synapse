@@ -104,6 +104,7 @@ Same mechanism as `synapse_listen_poll` but exits as soon as `min_messages` line
 ### `synapse_list_channels` (stub)
 
 Returns:
+
 ```json
 {
   "status": "not_implemented",
