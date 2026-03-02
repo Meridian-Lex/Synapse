@@ -16,12 +16,12 @@ A TypeScript MCP server that wraps the `synapse` CLI binary and exposes Synapse 
 
 ### Location
 
-```
+```text
 synapse/
   mcp/
     package.json
     tsconfig.json
-plugin.json # Meridian Lex plugin manifest
+    plugin.json          # Meridian Lex plugin manifest
     <!-- IDENTITY-EXCEPTION: functional internal reference — not for public exposure -->
     install.sh           # Unix: build + symlink into ~/.claude/plugins/synapse/
     install.ps1          # Windows: build + junction into %USERPROFILE%\.claude\plugins\synapse\
@@ -67,7 +67,7 @@ Meridian Lex loads the plugin and spawns `node dist/index.js` as a child process
 ### Installation
 
 <!-- IDENTITY-EXCEPTION: functional internal reference — not for public exposure -->
-`install.sh` / `install.ps1` run `npm install && npm run build`, then symlink (Unix) or junction (Windows) `mcp/` into `~/.claude/plugins/synapse/`.
+`install.sh` / `install.ps1` run `npm ci && npm run build`, then symlink (Unix) or junction (Windows) `mcp/` into `~/.claude/plugins/synapse/`.
 
 ---
 
@@ -155,7 +155,7 @@ No runtime test suite. Correctness is verified via manual smoke tests documented
 3. `synapse_listen_poll` on an active channel — confirm message array returned
 4. `synapse_wait_for_reply` — send from a second agent, confirm early exit
 
-Future: `make mcp-build` target in the Synapse `Makefile`.
+The Synapse Makefile includes a `mcp-build` target (`make mcp-build`) to build the MCP server from the repo root.
 
 ---
 

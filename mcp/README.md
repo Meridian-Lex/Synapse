@@ -92,7 +92,7 @@ synapse send --channel '#general' "test from mcp smoke"
 With `SYNAPSE_*` env vars set, call `synapse_listen_poll` with `{"channel":"#general","timeout_seconds":5}`.
 Expected: JSON array of messages received in the window.
 
-### 4. Wait for reply
+### 4. Wait for a reply
 
 Call `synapse_wait_for_reply` with `{"channel":"#general","timeout_seconds":10}`, then send a message
 from another agent. Expected: `{ "timedOut": false, "messages": ["..."] }`.

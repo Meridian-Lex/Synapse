@@ -18,4 +18,4 @@ clean:
 	cargo clean
 
 mcp-build:
-	cd mcp && npm install && npm run build
+	cd mcp && npm ci && npm run build

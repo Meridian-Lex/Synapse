@@ -10,6 +10,8 @@ export interface RunResult {
 export interface PollResult {
   messages: string[];
   timedOut: boolean;
+  exitCode: number | null;
+  stderr: string;
 }
 
 /** Resolve synapse binary path. SYNAPSE_CLI overrides; falls back to "synapse" in PATH. */
@@ -52,7 +54,7 @@ export async function runOnce(args: string[]): Promise<RunResult> {
       if (err.code === "ENOENT") {
         reject(new Error(
           `synapse CLI not found. Set SYNAPSE_CLI or add synapse to PATH. ` +
-          `See mcp/README.md or run mcp/install.sh to set up the Synapse CLI.`
+          `See mcp/README.md or run mcp/install.sh (Unix) / mcp/install.ps1 (Windows).`
         ));
       } else {
         reject(err);
@@ -83,6 +85,7 @@ export async function runWithTimeout(
     });
 
     const messages: string[] = [];
+    let stderr = "";
     let settled = false;
 
     // Declare timer variable before error handler so the error handler can clear it.
@@ -95,12 +98,14 @@ export async function runWithTimeout(
       if (err.code === "ENOENT") {
         reject(new Error(
           `synapse CLI not found. Set SYNAPSE_CLI or add synapse to PATH. ` +
-          `See mcp/README.md or run mcp/install.sh to set up the Synapse CLI.`
+          `See mcp/README.md or run mcp/install.sh (Unix) / mcp/install.ps1 (Windows).`
         ));
       } else {
         reject(err);
       }
     });
+
+    child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
 
     const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
 
@@ -115,7 +120,7 @@ export async function runWithTimeout(
         clearTimeout(timer);
         rl.close();
         child.kill("SIGTERM");
-        resolve({ messages, timedOut: false });
+        resolve({ messages, timedOut: false, exitCode: null, stderr: stderr.trim() });
       }
     });
 
@@ -124,15 +129,15 @@ export async function runWithTimeout(
         settled = true;
         rl.close();
         child.kill("SIGTERM");
-        resolve({ messages, timedOut: true });
+        resolve({ messages, timedOut: true, exitCode: null, stderr: stderr.trim() });
       }
     }, timeoutMs);
 
-    child.on("close", () => {
+    child.on("close", (code: number | null) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve({ messages, timedOut: false });
+        resolve({ messages, timedOut: false, exitCode: code, stderr: stderr.trim() });
       }
     });
   });

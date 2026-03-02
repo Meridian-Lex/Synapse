@@ -2,8 +2,8 @@ import { z } from "zod";
 import { runOnce, validateCredentials } from "../cli.js";
 
 export const SendMessageSchema = z.object({
-  channel: z.string().describe("Channel name, e.g. #general"),
-  message: z.string().describe("Message body to send"),
+  channel: z.string().trim().min(1, "channel must not be empty").describe("Channel name, e.g. #general"),
+  message: z.string().trim().min(1, "message must not be empty").describe("Message body to send"),
 });
 
 export const sendMessageTool = {

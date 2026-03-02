@@ -7,7 +7,7 @@ PLUGIN_DIR="${HOME}/.claude/plugins/synapse"
 
 echo "Building synapse-mcp..."
 cd "$SCRIPT_DIR"
-npm install
+npm ci
 npm run build
 
 echo "Installing plugin to ${PLUGIN_DIR}..."

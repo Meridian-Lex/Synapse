@@ -63,7 +63,7 @@
 
 **Step 3: Create `mcp/.gitignore`**
 
-```
+```text
 dist/
 node_modules/
 ```
@@ -815,10 +815,11 @@ echo '...tools/call synapse_listen_poll {"channel":"#general","timeout_seconds":
 
 Expected: JSON array containing the message sent.
 
-### 4. Wait for reply
+### 4. Wait for a reply
 
 Call `synapse_wait_for_reply` with `timeout_seconds: 10`, then send a message
 from another agent. Expected: early exit with `{ timedOut: false, messages: [...] }`.
+
 ```
 
 **Step 2: Commit**
