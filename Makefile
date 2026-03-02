@@ -1,6 +1,6 @@
-.PHONY: all broker cli-linux cli-windows test clean
+.PHONY: all broker cli-linux cli-windows test clean mcp-build
 
-all: broker cli-linux cli-windows
+all: broker cli-linux cli-windows mcp-build
 
 broker:
 	cargo build --release -p synapse-broker --target x86_64-unknown-linux-musl
@@ -16,3 +16,6 @@ test:
 
 clean:
 	cargo clean
+
+mcp-build:
+	cd mcp && npm ci && npm run build
