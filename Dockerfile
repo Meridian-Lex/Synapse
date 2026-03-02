@@ -40,3 +40,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
 
 USER appuser
 ENTRYPOINT ["/app/entrypoint.sh"]
+
