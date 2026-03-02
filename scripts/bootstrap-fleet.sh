@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Idempotent fleet bootstrap: create fleet, human operator agent, and default channel.
-# Usage: ./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> <secret> [default-channel]
-# Example: ./scripts/bootstrap-fleet.sh lex commander mysecret '#general'
+# Usage: FLEET_SECRET=<secret> ./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> [default-channel]
+# Example: FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)" ./scripts/bootstrap-fleet.sh lex commander '#general'
+#
+# The secret is read from the FLEET_SECRET environment variable rather than a positional
+# argument to prevent it from appearing in process listings (ps aux / /proc/<pid>/cmdline).
 set -euo pipefail
 
-FLEET_NAME="${1:?Usage: $0 <fleet-name> <agent-name> <secret> [default-channel]}"
+FLEET_NAME="${1:?Usage: FLEET_SECRET=<secret> $0 <fleet-name> <agent-name> [default-channel]}"
 AGENT_NAME="${2:?}"
-AGENT_SECRET="${3:?}"
-DEFAULT_CHANNEL="${4:-#general}"
+AGENT_SECRET="${FLEET_SECRET:?FLEET_SECRET environment variable must be set}"
+DEFAULT_CHANNEL="${3:-#general}"
 
 # psql -v sets named variables; ::'text' applies proper quoting in the SQL,
 # preventing injection regardless of what the shell variables contain.

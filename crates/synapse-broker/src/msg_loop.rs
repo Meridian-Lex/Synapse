@@ -112,11 +112,20 @@ where S: AsyncRead + AsyncWrite + Unpin,
                     }
                     MsgType::Msg => {
                         // Decompress before decoding — sender may have compressed large payloads.
-                        let decoded = if hdr.encoding == Encoding::Zstd {
-                            decompress(&payload)?
+                        // Move payload into decoded (zstd path) or use directly (raw path).
+                        let (decoded, original_payload) = if hdr.encoding == Encoding::Zstd {
+                            (decompress(&payload)?, Some(payload))
                         } else {
-                            payload.clone()
+                            (payload, None)
                         };
+                        // Reject frames that claim compression but use a non-zstd encoding;
+                        // honouring such frames would store/route raw bytes labelled as zstd.
+                        if hdr.flags.compressed && hdr.encoding != Encoding::Zstd {
+                            anyhow::bail!(
+                                "invalid frame: compressed flag set with non-zstd encoding {:?}",
+                                hdr.encoding
+                            );
+                        }
                         let msg = MsgPayload::decode(&decoded)?;
                         let (channel_id, content_type) = match &msg {
                             MsgPayload::Dialogue { channel_id, .. } => (*channel_id as i64, 1i16),
@@ -125,8 +134,8 @@ where S: AsyncRead + AsyncWrite + Unpin,
                         // Minor fix: safe u64 -> i64 cast instead of bare `as i64`.
                         let msg_id: i64 = hdr.message_id.try_into().unwrap_or(i64::MAX);
                         // If already compressed by sender, store as-is; otherwise compress if large.
-                        let (body, compressed, enc) = if hdr.flags.compressed {
-                            (payload.clone(), true, Encoding::Zstd)
+                        let (body, compressed, enc) = if hdr.flags.compressed && hdr.encoding == Encoding::Zstd {
+                            (original_payload.expect("zstd encoding implies Some(payload)"), true, Encoding::Zstd)
                         } else if should_compress(&decoded) {
                             (compress(&decoded)?, true, Encoding::Zstd)
                         } else {

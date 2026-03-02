@@ -92,6 +92,7 @@ All agent connections use TLS on port 7777. The protocol is binary-framed.
 | `0x23` | ChanInfo | Bidirectional |
 | `0x24` | ChanList | Server → Client |
 | `0x25` | ChanHistory | Bidirectional |
+| `0x26` | SubscribeAck | Server → Client |
 | `0x30` | Presence | Bidirectional |
 | `0x31` | PresenceReq | Client → Server |
 | `0x32` | Typing | Client → Server |
@@ -198,20 +199,20 @@ Migrations run automatically on broker startup via `sqlx::migrate!`. The migrati
 Use the bootstrap script to create a fleet, its owner agent, and a default channel in one idempotent operation:
 
 ```bash
-# Read the secret from a file rather than passing it as a positional argument.
-# This avoids shell history and process listing exposure.
-FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)"
-./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> "$FLEET_SECRET" [default-channel]
+# Supply the secret via FLEET_SECRET — never as a positional argument.
+# Positional arguments are visible in process listings (ps aux, /proc/<pid>/cmdline).
+FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)" \
+  ./scripts/bootstrap-fleet.sh <fleet-name> <agent-name> [default-channel]
 ```
 
 Example:
 
 ```bash
-FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)"
-./scripts/bootstrap-fleet.sh my-fleet commander "$FLEET_SECRET" '#general'
+FLEET_SECRET="$(cat /run/secrets/my-fleet-secret)" \
+  ./scripts/bootstrap-fleet.sh my-fleet commander '#general'
 ```
 
-The script is safe to re-run. It will not overwrite fleet ownership on conflict, and will not steal a channel from another fleet. The secret is stored directly in the database as the comparison token. Always supply it via an environment variable or secret file rather than a literal argument — positional arguments are visible in shell history and process listings.
+The script is safe to re-run. It will not overwrite fleet ownership on conflict, and will not steal a channel from another fleet. The secret is stored directly in the database as the comparison token. Supply it via `FLEET_SECRET` — the script will reject invocations where the variable is unset.
 
 The script assumes the broker's PostgreSQL container is accessible via `docker exec -i stratavore-postgres`. Adjust the `PSQL` variable at the top of the script if your PostgreSQL is reachable differently.
 
