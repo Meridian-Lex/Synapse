@@ -127,12 +127,16 @@ where S: AsyncRead + AsyncWrite + Unpin,
                         } else {
                             (payload, None)
                         };
-                        // Reject frames that claim compression but use a non-zstd encoding;
-                        // honouring such frames would store/route raw bytes labelled as zstd.
+                        // Validate encoding/compression flag consistency in both directions.
                         if hdr.flags.compressed && hdr.encoding != Encoding::Zstd {
                             anyhow::bail!(
                                 "invalid frame: compressed flag set with non-zstd encoding {:?}",
                                 hdr.encoding
+                            );
+                        }
+                        if hdr.encoding == Encoding::Zstd && !hdr.flags.compressed {
+                            anyhow::bail!(
+                                "invalid frame: zstd encoding set without compressed flag"
                             );
                         }
                         let msg = MsgPayload::decode(&decoded)?;
