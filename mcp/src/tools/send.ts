@@ -1,0 +1,34 @@
+import { z } from "zod";
+import { runOnce, validateCredentials } from "../cli.js";
+
+export const SendMessageSchema = z.object({
+  channel: z.string().describe("Channel name, e.g. #general"),
+  message: z.string().describe("Message body to send"),
+});
+
+export const sendMessageTool = {
+  name: "synapse_send_message",
+  description: "Send a message to a Synapse fleet channel.",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      channel: { type: "string", description: "Channel name, e.g. #general" },
+      message: { type: "string", description: "Message body to send" },
+    },
+    required: ["channel", "message"],
+  },
+};
+
+export async function handleSendMessage(args: unknown): Promise<string> {
+  const credErr = validateCredentials();
+  if (credErr) return credErr;
+
+  const { channel, message } = SendMessageSchema.parse(args);
+  const result = await runOnce(["send", "--channel", channel, message]);
+
+  if (result.code !== 0) {
+    return `Send failed (exit ${result.code}): ${result.stderr || result.stdout || "unknown error"}`;
+  }
+
+  return result.stdout || "Delivered.";
+}
