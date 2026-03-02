@@ -17,6 +17,5 @@ test:
 clean:
 	cargo clean
 
-.PHONY: mcp-build
 mcp-build:
 	cd mcp && npm install && npm run build

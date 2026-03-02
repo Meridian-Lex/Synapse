@@ -85,7 +85,13 @@ export async function runWithTimeout(
     const messages: string[] = [];
     let settled = false;
 
+    // Declare timer variable before error handler so the error handler can clear it.
+    let timer: ReturnType<typeof setTimeout>;
+
     child.on("error", (err: NodeJS.ErrnoException) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (err.code === "ENOENT") {
         reject(new Error(
           `synapse CLI not found. Set SYNAPSE_CLI or add synapse to PATH. ` +
@@ -99,21 +105,24 @@ export async function runWithTimeout(
     const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
 
     rl.on("line", (line: string) => {
+      if (settled) return;
       // Filter the initial status line from `synapse listen`
       if (line.startsWith("Listening on ")) return;
       if (line === "") return;
       messages.push(line);
-      if (!settled && onLine && onLine(line, messages)) {
+      if (onLine && onLine(line, messages)) {
         settled = true;
         clearTimeout(timer);
+        rl.close();
         child.kill("SIGTERM");
         resolve({ messages, timedOut: false });
       }
     });
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       if (!settled) {
         settled = true;
+        rl.close();
         child.kill("SIGTERM");
         resolve({ messages, timedOut: true });
       }
