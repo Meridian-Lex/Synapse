@@ -50,4 +50,36 @@ mod tests {
         assert!(!should_compress(b"hi"));
         assert!(should_compress(&b"x".repeat(65)));
     }
+
+    #[test]
+    fn test_decompress_bounded_exact_limit() {
+        let payload = b"x".repeat(100);
+        let compressed = compress(&payload).unwrap();
+        // Limit exactly equals decompressed size — should succeed.
+        let result = decompress_bounded(&compressed, 100).unwrap();
+        assert_eq!(result, payload);
+    }
+
+    #[test]
+    fn test_decompress_bounded_overflow() {
+        let payload = b"x".repeat(101);
+        let compressed = compress(&payload).unwrap();
+        // Limit is one byte short — must return an error.
+        let err = decompress_bounded(&compressed, 100).unwrap_err();
+        assert!(matches!(err, ProtoError::DecompressFailed(_)));
+    }
+
+    #[test]
+    fn test_decompress_bounded_empty_input() {
+        // Empty compressed input is invalid zstd — must return an error.
+        let err = decompress_bounded(&[], 1024).unwrap_err();
+        assert!(matches!(err, ProtoError::DecompressFailed(_)));
+    }
+
+    #[test]
+    fn test_decompress_bounded_corrupt_input() {
+        // Corrupt bytes are not valid zstd — must return an error.
+        let err = decompress_bounded(b"\xff\xfe\xfd\xfc", 1024).unwrap_err();
+        assert!(matches!(err, ProtoError::DecompressFailed(_)));
+    }
 }
