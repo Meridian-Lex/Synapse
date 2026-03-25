@@ -10,8 +10,9 @@ pub struct ChannelBuffer {
 }
 
 impl ChannelBuffer {
-    /// Create a new ring buffer with the given capacity.
+    /// Create a new ring buffer with the given capacity. Panics if capacity is zero.
     pub fn new(capacity: usize) -> Self {
+        assert!(capacity > 0, "ChannelBuffer capacity must be > 0");
         Self {
             capacity,
             messages: VecDeque::new(),
