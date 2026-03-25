@@ -5,8 +5,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing;
 
 use crate::relay::RelayRegistry;
 use crate::types::*;
@@ -38,6 +39,14 @@ fn ok_resp() -> (StatusCode, Json<OkResp>) {
     (StatusCode::OK, Json(OkResp { ok: true }))
 }
 
+// Response enum for mixed success/error handlers
+#[derive(Serialize)]
+#[serde(untagged)]
+enum MixedResp {
+    Ok(OkResp),
+    Error(ErrorResp),
+}
+
 // Calculate next_seq from messages
 fn next_seq_from(msgs: &[BufferedMessage], since: u64) -> u64 {
     msgs.last().map(|m| m.seq + 1).unwrap_or(since + 1)
@@ -47,16 +56,19 @@ fn next_seq_from(msgs: &[BufferedMessage], since: u64) -> u64 {
 async fn handle_subscribe(
     State(registry): State<AppState>,
     Json(req): Json<SubscribeReq>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> (StatusCode, Json<MixedResp>) {
     match registry.subscribe(&req.channel).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"ok": true}))),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": e.to_string(),
-                "channel": req.channel
-            })),
-        ),
+        Ok(()) => (StatusCode::OK, Json(MixedResp::Ok(OkResp { ok: true }))),
+        Err(e) => {
+            tracing::error!("subscribe failed for channel {}: {}", req.channel, e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(MixedResp::Error(ErrorResp {
+                    error: e.to_string(),
+                    channel: Some(req.channel),
+                })),
+            )
+        }
     }
 }
 
@@ -71,32 +83,38 @@ async fn handle_leave(
 async fn handle_send(
     State(registry): State<AppState>,
     Json(req): Json<SendReq>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> (StatusCode, Json<MixedResp>) {
     match registry.send_dialogue(&req.channel, &req.text).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"ok": true}))),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": e.to_string(),
-                "channel": req.channel
-            })),
-        ),
+        Ok(()) => (StatusCode::OK, Json(MixedResp::Ok(OkResp { ok: true }))),
+        Err(e) => {
+            tracing::error!("send failed for channel {}: {}", req.channel, e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(MixedResp::Error(ErrorResp {
+                    error: e.to_string(),
+                    channel: Some(req.channel),
+                })),
+            )
+        }
     }
 }
 
 async fn handle_send_work(
     State(registry): State<AppState>,
     Json(req): Json<SendWorkReq>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> (StatusCode, Json<MixedResp>) {
     match registry.send_work(&req.channel, req.payload).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"ok": true}))),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": e.to_string(),
-                "channel": req.channel
-            })),
-        ),
+        Ok(()) => (StatusCode::OK, Json(MixedResp::Ok(OkResp { ok: true }))),
+        Err(e) => {
+            tracing::error!("send_work failed for channel {}: {}", req.channel, e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(MixedResp::Error(ErrorResp {
+                    error: e.to_string(),
+                    channel: Some(req.channel),
+                })),
+            )
+        }
     }
 }
 
@@ -120,10 +138,10 @@ async fn handle_poll(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({
-            "messages": messages,
-            "next_seq": next_seq
-        })),
+        Json(serde_json::to_value(PollResp {
+            messages,
+            next_seq,
+        }).unwrap()),
     )
 }
 
@@ -150,11 +168,11 @@ async fn handle_wait(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({
-            "messages": messages,
-            "next_seq": next_seq,
-            "timed_out": timed_out
-        })),
+        Json(serde_json::to_value(WaitResp {
+            messages,
+            next_seq,
+            timed_out,
+        }).unwrap()),
     )
 }
 
@@ -162,12 +180,15 @@ async fn handle_channels(State(registry): State<AppState>) -> (StatusCode, Json<
     match registry.list_channels().await {
         Ok(channels) => (
             StatusCode::OK,
-            Json(serde_json::json!({"channels": channels})),
+            Json(serde_json::to_value(ChannelsResp { channels }).unwrap()),
         ),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => {
+            tracing::error!("list_channels failed: {}", e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+        }
     }
 }
 
@@ -188,15 +209,18 @@ async fn handle_users(
     match registry.list_users(&channel).await {
         Ok(users) => (
             StatusCode::OK,
-            Json(serde_json::json!({"users": users})),
+            Json(serde_json::to_value(UsersResp { users }).unwrap()),
         ),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": e.to_string(),
-                "channel": channel
-            })),
-        ),
+        Err(e) => {
+            tracing::error!("list_users failed for channel {}: {}", channel, e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": e.to_string(),
+                    "channel": channel
+                })),
+            )
+        }
     }
 }
 
