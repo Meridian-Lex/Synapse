@@ -231,7 +231,7 @@ async fn authenticate<S: AsyncRead + AsyncWrite + Unpin>(
 ) -> Result<(i64, S)> {
     let hello = HelloPayload {
         agent_name: agent_name.into(),
-        client_version: "synapse-relay/0.4.2".into(),
+        client_version: format!("synapse-relay/{}", env!("CARGO_PKG_VERSION")),
         capabilities: 0,
     };
     let payload = hello.encode()?;

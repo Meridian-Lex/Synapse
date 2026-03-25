@@ -57,7 +57,7 @@ impl Config {
         Self::default()
     }
 
-    pub fn from_str(s: &str) -> anyhow::Result<Self> {
+    pub fn parse_toml(s: &str) -> anyhow::Result<Self> {
         let mut cfg: Config = toml::from_str(s)?;
         cfg.agent_name = std::env::var("SYNAPSE_AGENT").unwrap_or_default();
         cfg.secret     = std::env::var("SYNAPSE_SECRET").unwrap_or_default();
@@ -71,7 +71,7 @@ impl Config {
         } else {
             String::new()
         };
-        Self::from_str(&content)
+        Self::parse_toml(&content)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn test_from_str_partial() {
         let raw = r#"port = 8888"#;
-        let cfg = Config::from_str(raw).unwrap();
+        let cfg = Config::parse_toml(raw).unwrap();
         assert_eq!(cfg.port, 8888);
         assert_eq!(cfg.bind, "127.0.0.1"); // default preserved
     }

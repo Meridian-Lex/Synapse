@@ -29,6 +29,10 @@ struct Inner {
     channels: HashMap<String, ChannelEntry>,
 }
 
+fn expand_tilde(path: &str) -> String {
+    path.replace('~', &std::env::var("HOME").unwrap_or_default())
+}
+
 impl RelayRegistry {
     pub fn new(config: Config) -> Self {
         Self {
@@ -52,10 +56,7 @@ impl RelayRegistry {
 
         let buffer = Arc::new(Mutex::new(ChannelBuffer::new(self.config.buffer_capacity)));
         let addr = format!("{}:{}", self.config.broker_host, self.config.broker_port);
-        let ca_path = self.config.credentials.credentials_file
-            .as_deref()
-            .unwrap_or("~/.config/synapse/credentials.toml")
-            .replace('~', &std::env::var("HOME").unwrap_or_default());
+        let ca_path = self.ca_path();
 
         // Connect and subscribe
         let mut client = match TlsBrokerClient::connect(&addr, &ca_path, &self.config.agent_name, &self.config.secret).await {
@@ -135,9 +136,9 @@ impl RelayRegistry {
     }
 
     /// Wait for min messages since since, with timeout. Returns (messages, timed_out).
-    pub async fn wait(&self, channel: &str, since: u64, min: usize, timeout_ms: u64) -> (Vec<BufferedMessage>, bool) {
+    pub async fn wait(&self, channel: &str, since: u64, min: usize, timeout_ms: u64) -> anyhow::Result<(Vec<BufferedMessage>, bool)> {
         // Ensure subscribed before waiting
-        let _ = self.ensure_subscribed(channel).await;
+        self.ensure_subscribed(channel).await?;
         let buffer = {
             let inner = self.inner.lock().unwrap();
             inner.channels.get(channel).map(|e| e.buffer.clone())
@@ -145,9 +146,9 @@ impl RelayRegistry {
         if let Some(buf) = buffer {
             let msgs = ChannelBuffer::wait_for(buf, since, min, timeout_ms).await;
             let timed_out = msgs.len() < min;
-            (msgs, timed_out)
+            Ok((msgs, timed_out))
         } else {
-            (vec![], true)
+            Ok((vec![], true))
         }
     }
 
@@ -193,10 +194,11 @@ impl RelayRegistry {
     }
 
     fn ca_path(&self) -> String {
-        self.config.credentials.credentials_file
-            .as_deref()
-            .unwrap_or("~/.config/synapse/credentials.toml")
-            .replace('~', &std::env::var("HOME").unwrap_or_default())
+        expand_tilde(
+            self.config.credentials.credentials_file
+                .as_deref()
+                .unwrap_or("~/.config/synapse/credentials.toml")
+        )
     }
 
     async fn new_send_client(&self) -> anyhow::Result<TlsBrokerClient> {
@@ -218,10 +220,11 @@ async fn run_pump(
     config: Arc<Config>,
 ) {
     let addr = format!("{}:{}", config.broker_host, config.broker_port);
-    let ca_path = config.credentials.credentials_file
-        .as_deref()
-        .unwrap_or("~/.config/synapse/credentials.toml")
-        .replace('~', &std::env::var("HOME").unwrap_or_default());
+    let ca_path = expand_tilde(
+        config.credentials.credentials_file
+            .as_deref()
+            .unwrap_or("~/.config/synapse/credentials.toml")
+    );
     let mut backoff_secs = config.reconnect_delay_secs;
 
     loop {
@@ -310,6 +313,4 @@ fn is_auth_fail(e: &anyhow::Error) -> bool {
     e.downcast_ref::<BrokerError>()
         .map(|be| matches!(be, BrokerError::AuthFailed))
         .unwrap_or(false)
-        || e.to_string().contains("auth_failed")
-        || e.to_string().contains("authentication failed")
 }

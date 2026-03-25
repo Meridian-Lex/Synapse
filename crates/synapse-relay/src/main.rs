@@ -118,7 +118,8 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Users { channel } => {
-            let response = relay_get(&format!("/users?channel={}", channel)).await?;
+            let encoded_channel = urlencoding::encode(&channel);
+            let response = relay_get(&format!("/users?channel={}", encoded_channel)).await?;
             if let Some(users) = response.get("users").and_then(|u| u.as_array()) {
                 for user in users {
                     if let Some(name) = user.as_str() {
@@ -144,7 +145,8 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Tail { channel, count } => {
-            let response = relay_get(&format!("/poll?channel={}&since=0", channel)).await?;
+            let encoded_channel = urlencoding::encode(&channel);
+            let response = relay_get(&format!("/poll?channel={}&since=0", encoded_channel)).await?;
             if let Some(messages) = response.get("messages").and_then(|m| m.as_array()) {
                 let start = if messages.len() > count {
                     messages.len() - count

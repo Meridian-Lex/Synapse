@@ -172,7 +172,20 @@ async fn handle_wait(
     let min = q.min.unwrap_or(1);
     let timeout = q.timeout.unwrap_or(30000);
 
-    let (messages, timed_out) = registry.wait(&channel, since, min, timeout).await;
+    let (messages, timed_out) = match registry.wait(&channel, since, min, timeout).await {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::error!("wait failed: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(MixedResp::Error(ErrorResp {
+                    error: format!("wait failed: {}", e),
+                    channel: Some(channel),
+                })),
+            )
+                .into_response();
+        }
+    };
     let next_seq = next_seq_from(&messages, since);
 
     (
@@ -283,10 +296,11 @@ mod tests {
     use crate::config::Config;
 
     fn test_config() -> Config {
-        let mut c = Config::default();
-        c.agent_name = "test-agent".to_string();
-        c.secret = "test-secret".to_string();
-        c
+        Config {
+            agent_name: "test-agent".into(),
+            secret: "test-secret".into(),
+            ..Config::default()
+        }
     }
 
     fn test_registry() -> AppState {

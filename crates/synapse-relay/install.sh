@@ -36,5 +36,12 @@ EOF
 systemctl --user daemon-reload
 systemctl --user enable synapse-relay
 echo "Systemd unit installed and enabled."
+
+if [ ! -f "$HOME/.config/synapse-relay/env" ]; then
+    mkdir -p "$HOME/.config/synapse-relay"
+    printf "SYNAPSE_AGENT=\nSYNAPSE_SECRET=\n" > "$HOME/.config/synapse-relay/env"
+    echo "Created template env file at ~/.config/synapse-relay/env"
+fi
+
 echo "Set SYNAPSE_AGENT and SYNAPSE_SECRET in ~/.config/synapse-relay/env"
 echo "Then: systemctl --user start synapse-relay"
