@@ -200,6 +200,7 @@ impl BrokerClient<TlsStream<TcpStream>> {
 #[cfg(test)]
 impl BrokerClient<TcpStream> {
     /// Connect via plain TCP (no TLS) and authenticate. For testing only.
+    #[allow(dead_code)]
     pub async fn connect_plain(
         addr: &str,
         agent_name: &str,
