@@ -121,14 +121,18 @@ async fn handle_send_work(
 async fn handle_poll(
     State(registry): State<AppState>,
     Query(q): Query<PollQuery>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> impl IntoResponse {
     let channel = match q.channel {
         Some(ch) => ch,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "channel is required"})),
-            );
+                Json(MixedResp::Error(ErrorResp {
+                    error: "channel is required".to_string(),
+                    channel: None,
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -138,24 +142,29 @@ async fn handle_poll(
 
     (
         StatusCode::OK,
-        Json(serde_json::to_value(PollResp {
+        Json(PollResp {
             messages,
             next_seq,
-        }).unwrap()),
+        }),
     )
+        .into_response()
 }
 
 async fn handle_wait(
     State(registry): State<AppState>,
     Query(q): Query<WaitQuery>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> impl IntoResponse {
     let channel = match q.channel {
         Some(ch) => ch,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "channel is required"})),
-            );
+                Json(MixedResp::Error(ErrorResp {
+                    error: "channel is required".to_string(),
+                    channel: None,
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -168,26 +177,32 @@ async fn handle_wait(
 
     (
         StatusCode::OK,
-        Json(serde_json::to_value(WaitResp {
+        Json(WaitResp {
             messages,
             next_seq,
             timed_out,
-        }).unwrap()),
+        }),
     )
+        .into_response()
 }
 
-async fn handle_channels(State(registry): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
+async fn handle_channels(State(registry): State<AppState>) -> impl IntoResponse {
     match registry.list_channels().await {
         Ok(channels) => (
             StatusCode::OK,
-            Json(serde_json::to_value(ChannelsResp { channels }).unwrap()),
-        ),
+            Json(ChannelsResp { channels }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("list_channels failed: {}", e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({"error": e.to_string()})),
+                Json(MixedResp::Error(ErrorResp {
+                    error: e.to_string(),
+                    channel: None,
+                })),
             )
+                .into_response()
         }
     }
 }
@@ -195,31 +210,37 @@ async fn handle_channels(State(registry): State<AppState>) -> (StatusCode, Json<
 async fn handle_users(
     State(registry): State<AppState>,
     Query(q): Query<UsersQuery>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> impl IntoResponse {
     let channel = match q.channel {
         Some(ch) => ch,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "channel is required"})),
-            );
+                Json(MixedResp::Error(ErrorResp {
+                    error: "channel is required".to_string(),
+                    channel: None,
+                })),
+            )
+                .into_response();
         }
     };
 
     match registry.list_users(&channel).await {
         Ok(users) => (
             StatusCode::OK,
-            Json(serde_json::to_value(UsersResp { users }).unwrap()),
-        ),
+            Json(UsersResp { users }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("list_users failed for channel {}: {}", channel, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": e.to_string(),
-                    "channel": channel
+                Json(MixedResp::Error(ErrorResp {
+                    error: e.to_string(),
+                    channel: Some(channel),
                 })),
             )
+                .into_response()
         }
     }
 }
