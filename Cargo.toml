@@ -3,6 +3,7 @@ members = [
     "crates/synapse-proto",
     "crates/synapse-broker",
     "crates/synapse-cli",
+    "crates/synapse-relay",
 ]
 resolver = "2"
 
