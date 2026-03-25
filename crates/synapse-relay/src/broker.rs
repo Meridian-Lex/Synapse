@@ -189,9 +189,12 @@ impl BrokerClient {
 
 async fn tls_connect(addr: &str, ca_path: &str) -> Result<BrokerStream> {
     let mut root_store = rustls::RootCertStore::empty();
+    let mut cert_count = 0usize;
     for cert in certs(&mut BufReader::new(File::open(ca_path)?)).filter_map(Result::ok) {
         root_store.add(cert)?;
+        cert_count += 1;
     }
+    anyhow::ensure!(cert_count > 0, "no valid CA certificates found in {ca_path}");
     let config = ClientConfig::builder().with_root_certificates(root_store).with_no_client_auth();
     let host = parse_host(addr);
     let stream = TcpStream::connect(addr).await?;
@@ -262,7 +265,7 @@ fn json_to_rmpv(v: serde_json::Value) -> rmpv::Value {
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() { rmpv::Value::Integer(i.into()) }
             else if let Some(u) = n.as_u64() { rmpv::Value::Integer(u.into()) }
-            else { rmpv::Value::F64(n.as_f64().unwrap_or(0.0)) }
+            else { rmpv::Value::F64(n.as_f64().unwrap_or(f64::NAN)) }
         }
         serde_json::Value::String(s) => rmpv::Value::String(s.into()),
         serde_json::Value::Array(a) => rmpv::Value::Array(a.into_iter().map(json_to_rmpv).collect()),
