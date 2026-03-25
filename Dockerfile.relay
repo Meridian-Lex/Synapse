@@ -1,0 +1,36 @@
+# Stage 1: build
+FROM rust:1.88-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+
+# Copy workspace manifests and fetch dependencies early for better caching
+COPY Cargo.toml Cargo.lock ./
+COPY crates/synapse-proto/Cargo.toml crates/synapse-proto/
+COPY crates/synapse-relay/Cargo.toml crates/synapse-relay/
+RUN mkdir -p crates/synapse-proto/src && echo "" > crates/synapse-proto/src/lib.rs \
+ && mkdir -p crates/synapse-relay/src && echo "fn main(){}" > crates/synapse-relay/src/main.rs \
+ && echo "" >> crates/synapse-relay/src/main.rs
+RUN cargo fetch
+
+# Copy full source and build
+COPY . .
+RUN cargo build --release -p synapse-relay
+
+# Stage 2: runtime
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --system appuser && adduser --system --ingroup appuser appuser
+
+WORKDIR /app
+COPY --from=builder /build/target/release/synapse-relay /usr/local/bin/synapse-relay
+
+EXPOSE 7779
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
+    CMD ["/usr/local/bin/synapse-relay", "status"]
+
+USER appuser
+ENTRYPOINT ["/usr/local/bin/synapse-relay"]
+CMD ["serve", "--bind", "0.0.0.0", "--port", "7779"]
