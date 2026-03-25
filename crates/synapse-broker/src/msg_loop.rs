@@ -144,8 +144,9 @@ where S: AsyncRead + AsyncWrite + Unpin,
                             MsgPayload::Dialogue { channel_id, .. } => (*channel_id as i64, 1i16),
                             MsgPayload::Work     { channel_id, .. } => (*channel_id as i64, 2i16),
                         };
-                        // Minor fix: safe u64 -> i64 cast instead of bare `as i64`.
-                        let msg_id: i64 = hdr.message_id.try_into().unwrap_or(i64::MAX);
+                        // Mask high bit to keep within i64 range — avoids unique constraint
+                        // collisions on the messages_message_uuid_key column.
+                        let msg_id: i64 = (hdr.message_id & 0x7FFF_FFFF_FFFF_FFFF) as i64;
                         // If already compressed by sender, store as-is; otherwise compress if large.
                         let (body, compressed, enc) = if hdr.flags.compressed && hdr.encoding == Encoding::Zstd {
                             let payload = original_payload
