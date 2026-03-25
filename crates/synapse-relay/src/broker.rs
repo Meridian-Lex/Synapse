@@ -3,6 +3,7 @@ use rustls::ClientConfig;
 use rustls_pemfile::certs;
 use std::{fs::File, io::BufReader, sync::Arc};
 use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 use synapse_proto::{
     auth::{compute_hmac, HelloPayload},
@@ -22,7 +23,8 @@ pub struct InboundMsg {
     pub payload:    Option<serde_json::Value>,
 }
 
-pub type BrokerStream = TlsStream<TcpStream>;
+/// Type alias for the standard TLS-based broker stream.
+pub type TlsBrokerClient = BrokerClient<TlsStream<TcpStream>>;
 
 /// Error types specific to broker operations.
 #[derive(Debug, thiserror::Error)]
@@ -35,28 +37,14 @@ pub enum BrokerError {
     Protocol(String),
 }
 
-/// A connected, authenticated broker client.
-pub struct BrokerClient {
-    stream: BrokerStream,
+/// A connected, authenticated broker client. Generic over the stream type.
+pub struct BrokerClient<S> {
+    stream: S,
     agent_id: i64,
 }
 
-impl BrokerClient {
-    /// Connect to the broker at `addr` (e.g. "localhost:7777"), authenticate, and return a client.
-    /// `ca_path`: path to the CA certificate PEM file.
-    pub async fn connect(
-        addr: &str,
-        ca_path: &str,
-        agent_name: &str,
-        secret: &str,
-    ) -> Result<Self> {
-        let stream = tls_connect(addr, ca_path).await
-            .context("TLS connect failed")?;
-        let (agent_id, stream) = authenticate(stream, agent_name, secret).await
-            .context("authentication failed")?;
-        Ok(Self { stream, agent_id })
-    }
-
+/// Generic implementation for all stream types.
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> BrokerClient<S> {
     pub fn agent_id(&self) -> i64 { self.agent_id }
 
     /// Subscribe to a channel and return the broker-assigned channel_id.
@@ -185,9 +173,43 @@ impl BrokerClient {
     }
 }
 
+/// TLS-specific implementation with the standard connect method.
+impl BrokerClient<TlsStream<TcpStream>> {
+    /// Connect to the broker at `addr` (e.g. "localhost:7777"), authenticate, and return a client.
+    /// `ca_path`: path to the CA certificate PEM file.
+    pub async fn connect(
+        addr: &str,
+        ca_path: &str,
+        agent_name: &str,
+        secret: &str,
+    ) -> Result<Self> {
+        let stream = tls_connect(addr, ca_path).await
+            .context("TLS connect failed")?;
+        let (agent_id, stream) = authenticate(stream, agent_name, secret).await
+            .context("authentication failed")?;
+        Ok(Self { stream, agent_id })
+    }
+}
+
+/// Plain TCP implementation for testing (cfg(test) only).
+#[cfg(test)]
+impl BrokerClient<TcpStream> {
+    /// Connect via plain TCP (no TLS) and authenticate. For testing only.
+    pub async fn connect_plain(
+        addr: &str,
+        agent_name: &str,
+        secret: &str,
+    ) -> Result<Self> {
+        let stream = TcpStream::connect(addr).await?;
+        let (agent_id, stream) = authenticate(stream, agent_name, secret).await
+            .context("authentication failed")?;
+        Ok(Self { stream, agent_id })
+    }
+}
+
 // --- helpers ---
 
-async fn tls_connect(addr: &str, ca_path: &str) -> Result<BrokerStream> {
+async fn tls_connect(addr: &str, ca_path: &str) -> Result<TlsStream<TcpStream>> {
     let mut root_store = rustls::RootCertStore::empty();
     let mut cert_count = 0usize;
     for cert in certs(&mut BufReader::new(File::open(ca_path)?)).filter_map(Result::ok) {
@@ -202,11 +224,11 @@ async fn tls_connect(addr: &str, ca_path: &str) -> Result<BrokerStream> {
     Ok(TlsConnector::from(Arc::new(config)).connect(server_name, stream).await?)
 }
 
-async fn authenticate(
-    mut stream: BrokerStream,
+async fn authenticate<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
     agent_name: &str,
     secret: &str,
-) -> Result<(i64, BrokerStream)> {
+) -> Result<(i64, S)> {
     let hello = HelloPayload {
         agent_name: agent_name.into(),
         client_version: "synapse-relay/0.4.2".into(),
