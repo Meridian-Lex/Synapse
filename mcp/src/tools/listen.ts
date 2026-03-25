@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { runWithTimeout, validateCredentials } from "../cli.js";
+import { validateCredentials } from "../cli.js";
+import * as relay from "../relay-client.js";
 
 export const ListenPollSchema = z.object({
   channel: z.string().describe("Channel name, e.g. #general"),
   timeout_seconds: z.number().int().min(1).max(120).default(5)
-    .describe("How long to collect messages before returning (default 5s)"),
+    .describe("How long to wait for messages before returning (default 5s)"),
 });
 
 export const WaitForReplySchema = z.object({
@@ -12,21 +13,22 @@ export const WaitForReplySchema = z.object({
   timeout_seconds: z.number().int().min(1).max(300).default(30)
     .describe("Maximum time to wait for replies (default 30s)"),
   min_messages: z.number().int().min(1).max(1000).default(1)
-    .describe("Exit early once this many messages are received (default 1, max 1000)"),
+    .describe("Exit early once this many messages are received (default 1)"),
 });
 
 export const listenPollTool = {
   name: "synapse_listen_poll",
   description:
-    "Poll a Synapse channel for messages. Listens for timeout_seconds and returns all messages received. " +
-    "Empty array means the channel was quiet — not an error.",
+    "Poll a Synapse channel for messages. Returns all messages buffered since the last poll. " +
+    "Waits up to timeout_seconds for new messages if none are available. " +
+    "Backed by a persistent relay connection — messages are never missed between calls.",
   inputSchema: {
     type: "object" as const,
     properties: {
       channel: { type: "string", description: "Channel name, e.g. #general" },
       timeout_seconds: {
         type: "number",
-        description: "How long to collect messages (default 5s, max 120s)",
+        description: "How long to wait for messages if none are buffered (default 5s, max 120s)",
         default: 5,
       },
     },
@@ -38,7 +40,7 @@ export const waitForReplyTool = {
   name: "synapse_wait_for_reply",
   description:
     "Wait for a reply on a Synapse channel. Exits as soon as min_messages arrive or timeout_seconds elapses. " +
-    "Use after synapse_send_message to receive the response in a conversation loop. " +
+    "Backed by a persistent relay connection — messages are captured even between calls. " +
     "Returns { timedOut, messages }.",
   inputSchema: {
     type: "object" as const,
@@ -62,34 +64,15 @@ export const waitForReplyTool = {
 export async function handleListenPoll(args: unknown): Promise<string> {
   const credErr = validateCredentials();
   if (credErr) throw new Error(credErr);
-
   const { channel, timeout_seconds } = ListenPollSchema.parse(args);
-  const result = await runWithTimeout(
-    ["listen", "--channel", channel],
-    timeout_seconds * 1000
-  );
-
-  if (result.exitCode !== null && result.exitCode !== 0) {
-    throw new Error(`synapse listen failed (exit ${result.exitCode}): ${result.stderr.trim()}`);
-  }
-
-  return JSON.stringify(result.messages);
+  const result = await relay.wait(channel, 1, timeout_seconds);
+  return JSON.stringify(result.messages.map(m => m.text ?? m.payload));
 }
 
 export async function handleWaitForReply(args: unknown): Promise<string> {
   const credErr = validateCredentials();
   if (credErr) throw new Error(credErr);
-
   const { channel, timeout_seconds, min_messages } = WaitForReplySchema.parse(args);
-  const result = await runWithTimeout(
-    ["listen", "--channel", channel],
-    timeout_seconds * 1000,
-    (_line, collected) => collected.length >= min_messages
-  );
-
-  if (result.exitCode !== null && result.exitCode !== 0) {
-    throw new Error(`synapse listen failed (exit ${result.exitCode}): ${result.stderr.trim()}`);
-  }
-
-  return JSON.stringify({ timedOut: result.timedOut, messages: result.messages });
+  const result = await relay.wait(channel, min_messages, timeout_seconds);
+  return JSON.stringify({ timedOut: result.timedOut, messages: result.messages.map(m => m.text ?? m.payload) });
 }

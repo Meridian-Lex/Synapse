@@ -1,0 +1,38 @@
+[package]
+name = "synapse-relay"
+version.workspace = true
+edition = "2021"
+
+[[bin]]
+name = "synapse-relay"
+path = "src/main.rs"
+
+[lib]
+name = "synapse_relay"
+path = "src/lib.rs"
+
+[dependencies]
+tokio       = { workspace = true }
+axum        = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+hmac        = { workspace = true }
+sha2        = { workspace = true }
+rmpv        = { workspace = true }
+clap        = { workspace = true }
+anyhow      = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+rustls      = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+synapse-proto = { path = "../synapse-proto" }
+rand        = { workspace = true }
+tower       = "0.4"
+toml        = "0.8"
+reqwest     = { version = "0.12", features = ["json"] }
+urlencoding = "2.1"
+
+[dev-dependencies]
+tokio-test = "0.4"

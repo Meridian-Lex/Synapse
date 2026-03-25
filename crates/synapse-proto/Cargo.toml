@@ -3,6 +3,10 @@ name    = "synapse-proto"
 version.workspace = true
 edition = "2021"
 
+[lib]
+name = "synapse_proto"
+path = "src/lib.rs"
+
 [dependencies]
 tokio     = { workspace = true }
 zstd      = { workspace = true }

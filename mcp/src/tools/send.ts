@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { runOnce, validateCredentials } from "../cli.js";
+import { validateCredentials } from "../cli.js";
+import * as relay from "../relay-client.js";
 
 export const SendMessageSchema = z.object({
   channel: z.string().trim().min(1, "channel must not be empty").describe("Channel name, e.g. #general"),
@@ -22,13 +23,7 @@ export const sendMessageTool = {
 export async function handleSendMessage(args: unknown): Promise<string> {
   const credErr = validateCredentials();
   if (credErr) throw new Error(credErr);
-
   const { channel, message } = SendMessageSchema.parse(args);
-  const result = await runOnce(["send", "--channel", channel, message]);
-
-  if (result.code !== 0) {
-    throw new Error(`Send failed (exit ${result.code}): ${result.stderr || result.stdout || "unknown error"}`);
-  }
-
-  return result.stdout || "Delivered.";
+  await relay.send(channel, message);
+  return "Delivered.";
 }
