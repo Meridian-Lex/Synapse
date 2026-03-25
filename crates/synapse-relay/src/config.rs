@@ -35,9 +35,26 @@ fn default_capacity()        -> usize  { 1000 }
 fn default_reconnect_delay() -> u64    { 2 }
 fn default_reconnect_max()   -> u64    { 30 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bind: default_bind(),
+            port: default_port(),
+            broker_host: default_broker_host(),
+            broker_port: default_broker_port(),
+            buffer_capacity: default_capacity(),
+            reconnect_delay_secs: default_reconnect_delay(),
+            reconnect_max_secs: default_reconnect_max(),
+            credentials: Credentials::default(),
+            agent_name: String::new(),
+            secret: String::new(),
+        }
+    }
+}
+
 impl Config {
     pub fn defaults() -> Self {
-        toml::from_str("").unwrap()
+        Self::default()
     }
 
     pub fn from_str(s: &str) -> anyhow::Result<Self> {
@@ -93,5 +110,35 @@ mod tests {
         let cfg = Config::from_str(raw).unwrap();
         assert_eq!(cfg.port, 8888);
         assert_eq!(cfg.bind, "127.0.0.1"); // default preserved
+    }
+
+    #[test]
+    fn test_validate_success() {
+        let cfg = Config {
+            agent_name: "test-agent".into(),
+            secret: "test-secret".into(),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_missing_agent() {
+        let cfg = Config {
+            agent_name: String::new(),
+            secret: "test-secret".into(),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_missing_secret() {
+        let cfg = Config {
+            agent_name: "test-agent".into(),
+            secret: String::new(),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
     }
 }
