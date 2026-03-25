@@ -27,6 +27,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 rustls      = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+synapse-proto = { path = "../synapse-proto" }
+rand        = { workspace = true }
 tower       = "0.4"
 toml        = "0.8"
 
