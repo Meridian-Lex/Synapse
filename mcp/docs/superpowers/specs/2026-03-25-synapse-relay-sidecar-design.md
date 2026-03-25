@@ -35,14 +35,18 @@ synapse-mcp (TypeScript MCP server, updated)
 - Relay subscribes on first send/subscribe request for a channel
 - Reconnects automatically on disconnect: 2s initial backoff, exponential to 30s max
 - Authentication via HMAC-SHA256 challenge-response using stored credentials
+- **Auth failure**: if HMAC challenge-response fails, relay logs the error and does NOT retry automatically — auth errors indicate misconfigured credentials, not transient network issues. Relay marks the channel as `auth_failed` and returns `503` with `"error": "auth failed"` for all operations on that channel until relay is restarted with corrected credentials.
 
 ### Message Buffer
 
 - Ring buffer per channel, default capacity 1000 messages
 - All inbound messages stored immediately on arrival — independent of MCP session state
-- Each message assigned a monotonically increasing sequence number
+- Each message assigned a monotonically increasing `u64` sequence number starting at 1
 - Clients pass `since=<seq>` to receive only new messages — zero re-delivery
 - Buffer is in-memory only; relay restart clears it (acceptable for v1)
+- **Overflow**: seq numbers are `u64`; at fleet message rates, overflow is not a practical concern. Wrap-around is not implemented in v1.
+- **Ring eviction**: when buffer is full (capacity reached), the oldest message is dropped to make room for the newest (FIFO eviction). Eviction does not affect seq numbering — gaps are possible if a client polls infrequently.
+- **Seq on MCP restart**: MCP server initialises `nextSeq` to 0 on startup. First poll with `since=0` returns all messages currently in the buffer. No persistence; MCP restart may re-deliver up to `buffer_capacity` messages.
 
 ### Payload Handling
 
@@ -86,30 +90,54 @@ GET /status
 ```
 POST /send
   Body:     { "channel": "#body-harvest", "text": "message here" }
-  Effect:   Sends Dialogue frame to broker
-  Response: { "ok": true }
+  Effect:   Sends Dialogue frame to broker. Auto-subscribes channel if not yet joined.
+  Response 200: { "ok": true }
+  Response 400: { "error": "missing text field" }
+  Response 503: { "error": "broker disconnected", "channel": "#body-harvest" }
 
 POST /send_work
   Body:     { "channel": "#body-harvest", "payload": { ...any JSON... } }
-  Effect:   Serialises payload to MessagePack, sends Work frame to broker
-  Response: { "ok": true }
+  Effect:   Serialises payload to MessagePack, sends Work frame to broker. Auto-subscribes if needed.
+  Response 200: { "ok": true }
+  Response 400: { "error": "missing payload field" }
+  Response 503: { "error": "broker disconnected", "channel": "#body-harvest" }
 ```
 
 ### Polling
 
+Message objects always include both `text` and `payload` fields:
+- `type: "dialogue"`: `text` is the UTF-8 message body; `payload` is `null`
+- `type: "work"`: `payload` is the JSON-decoded MessagePack object; `text` is `null`
+- `received_at` is a UNIX timestamp in milliseconds
+
 ```
 GET /poll?channel=#body-harvest&since=42
-  Effect:   Returns all buffered messages with seq > since (or all if omitted)
-  Response: {
+  Effect:   Returns all buffered messages with seq > since.
+            If since is omitted, returns all messages currently in buffer.
+            If channel is not yet subscribed, auto-subscribes before returning.
+            Returns empty messages array (not an error) if nothing new.
+  Response 200: {
     "messages": [
-      { "seq": 43, "type": "dialogue"|"work", "text": "...", "payload": {...}, "received_at": 1234567890 }
+      { "seq": 43, "type": "dialogue", "text": "hello", "payload": null, "received_at": 1711234567890 },
+      { "seq": 44, "type": "work", "text": null, "payload": { "task": "..." }, "received_at": 1711234568000 }
     ],
-    "next_seq": 44
+    "next_seq": 45
   }
+  Response 400: { "error": "missing channel parameter" }
+  Response 503: { "error": "broker disconnected", "channel": "#body-harvest" }
 
 GET /wait?channel=#body-harvest&since=42&min=1&timeout=30
-  Effect:   Long-polls — holds connection until min messages arrive or timeout elapses
-  Response: Same shape as /poll, plus { "timed_out": true|false }
+  Effect:   Long-polls — returns when min new messages arrive or timeout elapses.
+            min defaults to 1; timeout defaults to 30 (seconds, max 300).
+            If channel is not yet subscribed, auto-subscribes.
+            On timeout, returns whatever was collected (may be empty).
+  Response 200: {
+    "messages": [...],
+    "next_seq": 45,
+    "timed_out": false
+  }
+  Response 400: { "error": "invalid min parameter" }
+  Response 503: { "error": "broker disconnected", "channel": "#body-harvest" }
 ```
 
 ---
@@ -282,3 +310,5 @@ tools/synapse-relay/
 - Multi-broker support
 - Authentication on the local HTTP API
 - Rate limiting / backpressure on send
+- `synapse-relay send-work` CLI subcommand (Work frames are agent-to-agent only; `say` covers all human/CLI use cases)
+- Seq number persistence across MCP server restarts (re-delivery of buffered messages on restart is acceptable)
