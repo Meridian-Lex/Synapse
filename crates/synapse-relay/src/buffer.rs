@@ -95,7 +95,7 @@ impl ChannelBuffer {
             tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
         loop {
             {
-                let guard = buf.lock().unwrap();
+                let guard = buf.lock().expect("buffer lock poisoned");
                 let msgs = guard.drain_since(since);
                 if msgs.len() >= min {
                     return msgs;
@@ -106,7 +106,7 @@ impl ChannelBuffer {
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        buf.lock().unwrap().drain_since(since)
+        buf.lock().expect("buffer lock poisoned").drain_since(since)
     }
 }
 

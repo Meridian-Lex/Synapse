@@ -48,7 +48,7 @@ enum MixedResp {
 
 // Calculate next_seq from messages
 fn next_seq_from(msgs: &[BufferedMessage], since: u64) -> u64 {
-    msgs.last().map(|m| m.seq + 1).unwrap_or(since + 1)
+    msgs.last().map(|m| m.seq + 1).unwrap_or(since)
 }
 
 // Handlers
@@ -169,7 +169,7 @@ async fn handle_wait(
 
     let since = q.since.unwrap_or(0);
     let min = q.min.unwrap_or(1);
-    let timeout = q.timeout.unwrap_or(30000);
+    let timeout = q.timeout.unwrap_or(30) * 1000;
 
     let (messages, timed_out) = match registry.wait(&channel, since, min, timeout).await {
         Ok(result) => result,
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let json: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(json["messages"].as_array().unwrap().len(), 0);
-        assert_eq!(json["next_seq"].as_u64().unwrap(), 1);
+        assert_eq!(json["next_seq"].as_u64().unwrap(), 0);
     }
 
     #[tokio::test]
