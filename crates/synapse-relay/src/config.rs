@@ -84,6 +84,9 @@ impl Config {
         if self.secret.is_empty() {
             anyhow::bail!("SYNAPSE_SECRET env var required");
         }
+        if self.buffer_capacity == 0 {
+            anyhow::bail!("buffer_capacity must be greater than 0");
+        }
         Ok(())
     }
 }

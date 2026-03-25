@@ -178,9 +178,16 @@ impl RelayRegistry {
     // --- helpers ---
 
     async fn ensure_subscribed(&self, channel: &str) -> anyhow::Result<()> {
-        let already = self.inner.lock().unwrap().channels.contains_key(channel);
-        if !already { self.subscribe(channel).await?; }
-        Ok(())
+        let state = self.inner.lock().unwrap()
+            .channels.get(channel)
+            .map(|e| e.conn_state.clone());
+        match state {
+            Some(ConnState::AuthFailed) => {
+                anyhow::bail!("channel {} auth failed — restart relay to retry", channel);
+            }
+            Some(_) => Ok(()), // already subscribed and healthy
+            None => self.subscribe(channel).await,
+        }
     }
 
     fn channel_id(&self, channel: &str) -> anyhow::Result<u64> {

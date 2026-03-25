@@ -146,10 +146,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> BrokerClient<S> {
     /// Response payload is newline-delimited channel names.
     pub async fn list_channels(&mut self) -> Result<Vec<String>> {
         write_frame(&mut self.stream, &FrameHeader::new(MsgType::ChanList, rand::random(), 0), &[]).await?;
-        let (_hdr, payload) = tokio::time::timeout(
+        let (hdr, payload) = tokio::time::timeout(
             tokio::time::Duration::from_secs(5),
             read_frame(&mut self.stream),
         ).await.map_err(|_| anyhow::anyhow!("timeout waiting for ChanList response"))??;
+        if hdr.msg_type == MsgType::Error {
+            anyhow::bail!("broker error: {}", String::from_utf8_lossy(&payload));
+        }
         let names = String::from_utf8_lossy(&payload)
             .lines()
             .map(str::trim)
@@ -164,10 +167,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> BrokerClient<S> {
     pub async fn list_users(&mut self, channel: &str) -> Result<Vec<String>> {
         let payload = channel.as_bytes().to_vec();
         write_frame(&mut self.stream, &FrameHeader::new(MsgType::PresenceReq, rand::random(), payload.len() as u32), &payload).await?;
-        let (_hdr, resp_payload) = tokio::time::timeout(
+        let (hdr, resp_payload) = tokio::time::timeout(
             tokio::time::Duration::from_secs(5),
             read_frame(&mut self.stream),
         ).await.map_err(|_| anyhow::anyhow!("timeout waiting for Presence response"))??;
+        if hdr.msg_type == MsgType::Error {
+            anyhow::bail!("broker error: {}", String::from_utf8_lossy(&resp_payload));
+        }
         let names = String::from_utf8_lossy(&resp_payload)
             .lines()
             .map(str::trim)
@@ -259,6 +265,7 @@ async fn authenticate<S: AsyncRead + AsyncWrite + Unpin>(
         return Err(BrokerError::AuthFailed.into());
     }
     anyhow::ensure!(ack.msg_type == MsgType::HelloAck, "auth rejected by broker");
+    anyhow::ensure!(ack_payload.len() >= 2, "HelloAck payload truncated (too short for length prefix)");
 
     let tl = u16::from_be_bytes([ack_payload[0], ack_payload[1]]) as usize;
     anyhow::ensure!(ack_payload.len() >= 2 + tl + 8, "HelloAck payload truncated");

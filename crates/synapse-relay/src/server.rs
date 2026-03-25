@@ -46,10 +46,13 @@ enum MixedResp {
     Error(ErrorResp),
 }
 
-// Calculate next_seq from messages
+// Calculate next_seq from messages. Returns since unchanged on empty so callers
+// do not skip ahead and lose the next real message.
 fn next_seq_from(msgs: &[BufferedMessage], since: u64) -> u64 {
     msgs.last().map(|m| m.seq + 1).unwrap_or(since)
 }
+
+const MAX_WAIT_SECS: u64 = 300;
 
 // Handlers
 async fn handle_subscribe(
@@ -169,14 +172,15 @@ async fn handle_wait(
 
     let since = q.since.unwrap_or(0);
     let min = q.min.unwrap_or(1);
-    let timeout = q.timeout.unwrap_or(30) * 1000;
+    let timeout_secs = q.timeout.unwrap_or(30).min(MAX_WAIT_SECS);
+    let timeout = timeout_secs * 1000;
 
     let (messages, timed_out) = match registry.wait(&channel, since, min, timeout).await {
         Ok(result) => result,
         Err(e) => {
             tracing::error!("wait failed: {}", e);
             return (
-                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::SERVICE_UNAVAILABLE,
                 Json(MixedResp::Error(ErrorResp {
                     error: format!("wait failed: {}", e),
                     channel: Some(channel),
