@@ -7,7 +7,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing;
 
 use crate::relay::RelayRegistry;
 use crate::types::*;

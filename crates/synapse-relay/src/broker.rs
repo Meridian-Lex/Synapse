@@ -17,6 +17,7 @@ use crate::types::MessageType;
 /// An inbound message received from the broker.
 #[derive(Debug, Clone)]
 pub struct InboundMsg {
+    #[allow(dead_code)]
     pub channel_id: u64,
     pub msg_type:   MessageType,
     pub text:       Option<String>,
@@ -31,8 +32,10 @@ pub type TlsBrokerClient = BrokerClient<TlsStream<TcpStream>>;
 pub enum BrokerError {
     #[error("authentication failed")]
     AuthFailed,
+    #[allow(dead_code)]
     #[error("broker disconnected")]
     Disconnected,
+    #[allow(dead_code)]
     #[error("protocol error: {0}")]
     Protocol(String),
 }
@@ -40,11 +43,13 @@ pub enum BrokerError {
 /// A connected, authenticated broker client. Generic over the stream type.
 pub struct BrokerClient<S> {
     stream: S,
+    #[allow(dead_code)]
     agent_id: i64,
 }
 
 /// Generic implementation for all stream types.
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> BrokerClient<S> {
+    #[allow(dead_code)]
     pub fn agent_id(&self) -> i64 { self.agent_id }
 
     /// Subscribe to a channel and return the broker-assigned channel_id.

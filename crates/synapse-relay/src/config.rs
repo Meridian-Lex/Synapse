@@ -15,7 +15,9 @@ impl Default for Credentials {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    #[allow(dead_code)]
     #[serde(default = "default_bind")]            pub bind: String,
+    #[allow(dead_code)]
     #[serde(default = "default_port")]            pub port: u16,
     #[serde(default = "default_broker_host")]     pub broker_host: String,
     #[serde(default = "default_broker_port")]     pub broker_port: u16,
@@ -53,6 +55,7 @@ impl Default for Config {
 }
 
 impl Config {
+    #[allow(dead_code)]
     pub fn defaults() -> Self {
         Self::default()
     }

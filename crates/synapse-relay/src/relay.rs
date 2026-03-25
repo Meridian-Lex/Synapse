@@ -11,6 +11,7 @@ pub enum ConnState {
     Connected,
     Reconnecting,
     AuthFailed,
+    #[allow(dead_code)]
     Disconnected,
 }
 

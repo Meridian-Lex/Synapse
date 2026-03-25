@@ -67,6 +67,7 @@ impl ChannelBuffer {
     }
 
     /// Return the next sequence number that will be assigned.
+    #[allow(dead_code)]
     pub fn next_seq(&self) -> u64 {
         self.next_seq
     }
@@ -77,6 +78,7 @@ impl ChannelBuffer {
     }
 
     /// Return true if the buffer is empty.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
     }
