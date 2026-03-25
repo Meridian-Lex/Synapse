@@ -38,20 +38,6 @@ fn ok_resp() -> (StatusCode, Json<OkResp>) {
     (StatusCode::OK, Json(OkResp { ok: true }))
 }
 
-fn err_resp(
-    status: StatusCode,
-    msg: &str,
-    channel: Option<String>,
-) -> (StatusCode, Json<ErrorResp>) {
-    (
-        status,
-        Json(ErrorResp {
-            error: msg.to_string(),
-            channel,
-        }),
-    )
-}
-
 // Calculate next_seq from messages
 fn next_seq_from(msgs: &[BufferedMessage], since: u64) -> u64 {
     msgs.last().map(|m| m.seq + 1).unwrap_or(since + 1)
