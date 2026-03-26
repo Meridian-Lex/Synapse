@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-publish:
+    name: Build & publish to Gitea registry
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binaries
+        run: cargo build --release --bin synapse-broker --bin synapse
+
+      - name: Publish binaries to Gitea generic registry
+        env:
+          GITEA_URL: http://192.168.0.12:30008
+          GITEA_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          REGISTRY="${GITEA_URL}/api/packages/StellarFleetOps/generic"
+
+          for BINARY in synapse-broker synapse; do
+            echo "Publishing ${BINARY} ${VERSION}..."
+            curl -sf -X PUT \
+              -H "Authorization: token ${GITEA_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@target/release/${BINARY}" \
+              "${REGISTRY}/${BINARY}/${VERSION}/${BINARY}-linux-amd64"
+          done
+
+          echo "Published synapse-broker and synapse at ${VERSION}"
