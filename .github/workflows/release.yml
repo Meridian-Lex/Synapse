@@ -45,30 +45,3 @@ jobs:
             target/release/synapse-broker \
             target/release/synapse
 
-      - name: Publish binaries to Gitea generic registry
-        env:
-          GITEA_URL: ${{ secrets.GITEA_BASE_URL }}
-          GITEA_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-
-          VERSION="${TAG#v}"
-          REGISTRY="${GITEA_URL}/api/packages/StellarFleetOps/generic"
-
-          for BINARY in synapse-broker synapse; do
-            echo "Publishing ${BINARY} ${VERSION}..."
-            curl \
-              --fail-with-body \
-              --show-error \
-              --retry 5 \
-              --retry-delay 5 \
-              --retry-max-time 60 \
-              -X PUT \
-              -H "Authorization: token ${GITEA_TOKEN}" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@target/release/${BINARY}" \
-              "${REGISTRY}/${BINARY}/${VERSION}/${BINARY}-linux-amd64"
-          done
-
-          echo "Published synapse-broker and synapse at ${VERSION}"
