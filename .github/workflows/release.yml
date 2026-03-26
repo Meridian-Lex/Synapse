@@ -48,7 +48,7 @@ jobs:
       - name: Publish binaries to Gitea generic registry
         env:
           GITEA_URL: ${{ secrets.GITEA_BASE_URL }}
-          GITEA_TOKEN: ${{ secrets.FLEET_TOKEN }}
+          GITEA_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
