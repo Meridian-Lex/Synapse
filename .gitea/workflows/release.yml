@@ -38,12 +38,16 @@ jobs:
           GITEA_TOKEN: ${{ secrets.FLEET_TOKEN }}
           TAG: ${{ gitea.ref_name }}
         run: |
+          set -euo pipefail
+
           VERSION="${TAG#v}"
           REGISTRY="${GITEA_URL}/api/packages/StellarFleetOps/generic"
 
           for BINARY in synapse-broker synapse; do
             echo "Publishing ${BINARY} ${VERSION}..."
-            curl -sf \
+            curl \
+              --fail-with-body \
+              --show-error \
               --retry 5 \
               --retry-delay 5 \
               --retry-max-time 60 \
