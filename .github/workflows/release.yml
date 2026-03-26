@@ -6,10 +6,12 @@ on:
       - "v*.*.*"
 
 jobs:
-  build-publish:
-    name: Build & publish to Gitea registry
+  build-release:
+    name: Build & publish GitHub release
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -32,22 +34,13 @@ jobs:
       - name: Build release binaries
         run: cargo build --release --bin synapse-broker --bin synapse
 
-      - name: Publish binaries to Gitea generic registry
+      - name: Create GitHub release and upload binaries
         env:
-          GITEA_URL: http://192.168.0.12:30008
-          GITEA_TOKEN: ${{ secrets.LEXCODE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          VERSION="${TAG#v}"
-          REGISTRY="${GITEA_URL}/api/packages/StellarFleetOps/generic"
-
-          for BINARY in synapse-broker synapse; do
-            echo "Publishing ${BINARY} ${VERSION}..."
-            curl -sf -X PUT \
-              -H "Authorization: token ${GITEA_TOKEN}" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary "@target/release/${BINARY}" \
-              "${REGISTRY}/${BINARY}/${VERSION}/${BINARY}-linux-amd64"
-          done
-
-          echo "Published synapse-broker and synapse at ${VERSION}"
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --generate-notes \
+            target/release/synapse-broker \
+            target/release/synapse
